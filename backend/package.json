@@ -1,25 +1,32 @@
 {
-  "name": "video-storage-backend",
+  "name": "video-delivery-backend",
   "version": "1.0.0",
-  "type": "module",
-  "description": "Backend server for video storage and delivery system",
+  "description": "Backend API for video delivery system",
   "main": "server.js",
+  "type": "module",
   "scripts": {
+    "dev": "node --watch server.js",
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "create-admin": "node scripts/createAdmin.js",
+    "check-db": "node scripts/checkDatabase.js",
+    "generate-short-links": "node scripts/generateShortLinksForAllVideos.js",
+    "migrate-cloudflare": "node scripts/runCloudflareMigration.js",
+    "migrate-csv-history": "node scripts/runCsvHistoryMigration.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
+    "csv-parse": "^6.1.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-validator": "^7.0.1",
+    "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.6.5",
-    "jsonwebtoken": "^9.0.2",
-    "bcrypt": "^5.1.1",
     "qrcode": "^1.5.3",
-    "dotenv": "^16.3.1"
+    "sharp": "^0.33.2"
   }
 }
-

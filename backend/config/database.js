@@ -1,18 +1,22 @@
 import mysql from 'mysql2/promise';
-import config from './config.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const pool = mysql.createPool({
-  host: config.database.host,
-  port: config.database.port,
-  user: config.database.user,
-  password: config.database.password,
-  database: config.database.database,
-  waitForConnections: config.database.waitForConnections,
-  connectionLimit: config.database.connectionLimit,
-  queueLimit: config.database.queueLimit,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'video_delivery',
+  port: process.env.DB_PORT || 3306,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
 });
 
 export default pool;
+
+
+
+
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, Edit, Trash2, ExternalLink, Eye, Calendar } from 'lucide-react';
+import { Play, Edit, Trash2, ExternalLink, Eye, Calendar, Search } from 'lucide-react';
 import api from '../services/api';
 
 function VideoList() {
@@ -14,6 +14,7 @@ function VideoList() {
     activities: []
   });
   const [filters, setFilters] = useState({
+    search: '',
     course: '',
     grade: '',
     lesson: '',
@@ -43,6 +44,7 @@ function VideoList() {
   const fetchVideos = async () => {
     try {
       const params = new URLSearchParams();
+      if (filters.search) params.append('search', filters.search);
       if (filters.course) params.append('course', filters.course);
       if (filters.grade) params.append('grade', filters.grade);
       if (filters.lesson) params.append('lesson', filters.lesson);
@@ -93,54 +95,109 @@ function VideoList() {
       {/* Filters Section */}
       <div className="bg-white rounded-lg shadow-sm border border-blue-200 p-6 mb-6">
         <h2 className="text-lg font-semibold text-gray-800 mb-4">Filters</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        
+        {/* Search Bar */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Search
+          </label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              value={filters.search || ''}
+              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+              placeholder="Search by title, description, or video ID..."
+              className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Course
             </label>
-            <input
-              type="text"
+            <select
               value={filters.course || ''}
               onChange={(e) => setFilters({ ...filters, course: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Filter by course"
-            />
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none bg-white cursor-pointer"
+            >
+              <option value="">All Courses</option>
+              {filterOptions.courses.map((course) => (
+                <option key={course} value={course}>
+                  {course}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Grade
             </label>
-            <input
-              type="text"
+            <select
               value={filters.grade || ''}
               onChange={(e) => setFilters({ ...filters, grade: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Filter by grade"
-            />
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none bg-white cursor-pointer"
+            >
+              <option value="">All Grades</option>
+              {filterOptions.grades.map((grade) => (
+                <option key={grade} value={grade}>
+                  {grade}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Lesson
             </label>
-            <input
-              type="text"
+            <select
               value={filters.lesson || ''}
               onChange={(e) => setFilters({ ...filters, lesson: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Filter by lesson"
-            />
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none bg-white cursor-pointer"
+            >
+              <option value="">All Lessons</option>
+              {filterOptions.lessons.map((lesson) => (
+                <option key={lesson} value={lesson}>
+                  {lesson}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Module
             </label>
-            <input
-              type="text"
+            <select
               value={filters.module || ''}
               onChange={(e) => setFilters({ ...filters, module: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Filter by module"
-            />
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none bg-white cursor-pointer"
+            >
+              <option value="">All Modules</option>
+              {filterOptions.modules.map((module) => (
+                <option key={module} value={module}>
+                  {module}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Activity
+            </label>
+            <select
+              value={filters.activity || ''}
+              onChange={(e) => setFilters({ ...filters, activity: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none bg-white cursor-pointer"
+            >
+              <option value="">All Activities</option>
+              {filterOptions.activities.map((activity) => (
+                <option key={activity} value={activity}>
+                  {activity}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -157,24 +214,12 @@ function VideoList() {
             </select>
           </div>
         </div>
-        {/* Activity Filter - Optional, can be shown in a second row if needed */}
-        <div className="mt-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Activity
-          </label>
-          <input
-            type="text"
-            value={filters.activity || ''}
-            onChange={(e) => setFilters({ ...filters, activity: e.target.value })}
-            className="w-full md:w-1/3 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="Filter by activity"
-          />
-        </div>
         {/* Clear Filters Button */}
-        {(filters.course || filters.grade || filters.lesson || filters.module || filters.activity || filters.status !== 'active') && (
+        {(filters.search || filters.course || filters.grade || filters.lesson || filters.module || filters.activity || filters.status !== 'active') && (
           <div className="mt-4">
             <button
               onClick={() => setFilters({
+                search: '',
                 course: '',
                 grade: '',
                 lesson: '',
@@ -217,13 +262,33 @@ function VideoList() {
               return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
             };
 
-            const thumbnailUrl = video.thumbnail_url ? (() => {
-              const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
-              const thumbnailPath = video.thumbnail_url.startsWith('/') 
-                ? video.thumbnail_url 
-                : `/${video.thumbnail_url}`;
-              return `${backendUrl}${thumbnailPath}`;
-            })() : null;
+            // Get thumbnail URL - use video thumbnail or default
+            const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+            
+            // Always ensure we have a thumbnail URL - use video's thumbnail or default
+            let thumbnailUrl = null;
+            if (video.thumbnail_url && video.thumbnail_url.trim() !== '') {
+              // Handle different thumbnail path formats
+              let thumbnailPath = video.thumbnail_url;
+              // If it doesn't start with /, add it
+              if (!thumbnailPath.startsWith('/')) {
+                thumbnailPath = `/${thumbnailPath}`;
+              }
+              // Ensure it starts with /thumbnails/ (lowercase)
+              if (!thumbnailPath.toLowerCase().startsWith('/thumbnails/')) {
+                // If it's just a filename, add /thumbnails/ prefix
+                if (!thumbnailPath.includes('/')) {
+                  thumbnailPath = `/thumbnails/${thumbnailPath}`;
+                } else {
+                  // If it has a different path structure, try to normalize it
+                  thumbnailPath = `/thumbnails/${thumbnailPath.split('/').pop()}`;
+                }
+              }
+              thumbnailUrl = `${backendUrl}${thumbnailPath}`;
+            } else {
+              // Always use default thumbnail if video doesn't have one
+              thumbnailUrl = `${backendUrl}/thumbnails/default.png`;
+            }
 
             return (
               <div
@@ -342,8 +407,17 @@ function VideoList() {
                   {/* Action Buttons */}
                   <div className="mt-4 pt-3 border-t border-gray-200 flex gap-2">
                     <Link
-                      to={`/stream/${video.video_id}`}
+                      to={`/video/${video.video_id}`}
                       className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-200 transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Eye className="w-4 h-4" />
+                      View
+                    </Link>
+                    <Link
+                      to={`/stream/${video.video_id}`}
+                      target="_blank"
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-green-100 text-green-700 rounded-lg text-sm font-medium hover:bg-green-200 transition-colors"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <Play className="w-4 h-4" />

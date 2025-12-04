@@ -1,23 +1,51 @@
-import pool from '../config/database.js';
 import * as redirectService from '../services/redirectService.js';
 
-export async function handleRedirect(req, res) {
+/**
+ * Handle redirect
+ */
+export async function handleRedirect(req, res, next) {
   try {
-    const { slug } = req.params;
+    // Skip redirects for API routes
+    if (req.path.startsWith('/api/')) {
+      return next();
+    }
     
-    const redirect = await redirectService.getRedirect(slug);
+    const { slug } = req.params;
+    const redirect = await redirectService.getRedirectBySlug(slug);
     
     if (!redirect) {
       return res.status(404).json({ error: 'Redirect not found' });
     }
-
-    res.redirect(redirect.url);
+    
+    res.redirect(302, redirect.target_url);
   } catch (error) {
     console.error('Redirect error:', error);
     res.status(500).json({ error: 'Redirect failed' });
   }
 }
 
+/**
+ * Get redirect info by slug (for API)
+ */
+export async function getRedirectInfo(req, res) {
+  try {
+    const { slug } = req.params;
+    const redirect = await redirectService.getRedirectBySlug(slug);
+    
+    if (!redirect) {
+      return res.status(404).json({ error: 'Redirect not found' });
+    }
+    
+    res.json(redirect);
+  } catch (error) {
+    console.error('Get redirect info error:', error);
+    res.status(500).json({ error: 'Failed to fetch redirect info' });
+  }
+}
+
+/**
+ * Get all redirects
+ */
 export async function getAllRedirects(req, res) {
   try {
     const redirects = await redirectService.getAllRedirects();
@@ -28,32 +56,24 @@ export async function getAllRedirects(req, res) {
   }
 }
 
-export async function createRedirect(req, res) {
-  try {
-    const { slug, url } = req.body;
-    
-    if (!slug || !url) {
-      return res.status(400).json({ error: 'Slug and URL required' });
-    }
-
-    const redirect = await redirectService.createRedirect(slug, url);
-    res.status(201).json(redirect);
-  } catch (error) {
-    console.error('Create redirect error:', error);
-    res.status(500).json({ error: 'Failed to create redirect' });
-  }
-}
-
+/**
+ * Delete redirect
+ */
 export async function deleteRedirect(req, res) {
   try {
     const { slug } = req.params;
-    const success = await redirectService.deleteRedirect(slug);
     
-    if (success) {
-      res.json({ message: 'Redirect deleted successfully' });
-    } else {
-      res.status(404).json({ error: 'Redirect not found' });
+    if (!slug) {
+      return res.status(400).json({ error: 'Redirect slug is required' });
     }
+
+    const deleted = await redirectService.deleteRedirect(slug);
+    
+    if (!deleted) {
+      return res.status(404).json({ error: 'Redirect not found' });
+    }
+
+    res.json({ message: 'Redirect deleted successfully' });
   } catch (error) {
     console.error('Delete redirect error:', error);
     res.status(500).json({ error: 'Failed to delete redirect' });

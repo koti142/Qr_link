@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* Print Styles */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  
+  [class*="print:"] {
+    visibility: visible !important;
+  }
+  
+  [class*="print:block"] {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  
+  [class*="print:fixed"] {
+    position: fixed !important;
+  }
+  
+  [class*="print:inset-0"] {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+  }
+  
+  [class*="print:bg-white"] {
+    background-color: white !important;
+  }
+  
+  [class*="print:p-8"] {
+    padding: 2rem !important;
+  }
+  
+  @page {
+    margin: 1cm;
+    size: A4;
+  }
+  
+  /* Show printable content */
+  div[style*="display: none"] {
+    display: block !important;
+  }
+}
+
+
+
+
+

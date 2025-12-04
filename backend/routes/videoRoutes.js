@@ -1,7 +1,13 @@
 import express from 'express';
 import * as videoController from '../controllers/videoController.js';
 import * as streamController from '../controllers/streamController.js';
+import * as bulkUploadController from '../controllers/bulkUploadController.js';
+import * as thumbnailController from '../controllers/thumbnailController.js';
+import * as redirectService from '../services/redirectService.js';
+import * as videoService from '../services/videoService.js';
+import config from '../config/config.js';
 import { authenticateToken } from '../middleware/auth.js';
+import multer from 'multer';
 
 const router = express.Router();
 
@@ -21,9 +27,77 @@ router.use((req, res, next) => {
 router.get('/', videoController.getAllVideos);
 router.get('/filters', videoController.getFilterValues);
 
+// Public API to get redirect info by slug (for frontend short URL handling)
+router.get('/redirect-info/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    
+    // First, try to get redirect from redirects table
+    let redirect = await redirectService.getRedirectBySlug(slug);
+    
+    // If not found in redirects table, check if slug is a redirect_slug in videos table
+    if (!redirect) {
+      const video = await videoService.getVideoByRedirectSlug(slug, true);
+      if (video) {
+        // Build redirect info from video
+        const targetUrl = `${config.urls.frontend}/stream/${video.video_id}`;
+        redirect = {
+          slug: slug,
+          target_url: targetUrl,
+          created_at: video.created_at,
+          updated_at: video.updated_at
+        };
+      }
+    }
+    
+    if (!redirect) {
+      return res.status(404).json({ error: 'Redirect not found' });
+    }
+    
+    res.json(redirect);
+  } catch (error) {
+    console.error('Get redirect info error:', error);
+    res.status(500).json({ error: 'Failed to fetch redirect info' });
+  }
+});
+
+// Protected admin routes - MUST be before /:videoId route to avoid route conflicts
+// IMPORTANT: Specific routes like /misc-videos must come BEFORE parameterized routes
+router.get('/misc-videos', (req, res, next) => {
+  console.log('[Route] /misc-videos route hit');
+  console.log('[Route] Auth header:', req.headers.authorization ? 'Present' : 'Missing');
+  next();
+}, authenticateToken, bulkUploadController.getMiscVideos);
+router.get('/qr-codes', (req, res, next) => {
+  console.log('[Route] /qr-codes route hit');
+  console.log('[Route] Auth header:', req.headers.authorization ? 'Present' : 'Missing');
+  next();
+}, authenticateToken, videoController.getAllQRCodes);
+router.get('/thumbnails', authenticateToken, thumbnailController.getThumbnails);
+
+// QR code download route - MUST be before other /:videoId/* routes
+router.get('/:videoId/qr-download', (req, res, next) => {
+  console.log('[Route] /qr-download route hit for videoId:', req.params.videoId);
+  next();
+}, authenticateToken, videoController.downloadQRCode);
+
+router.post('/upload', authenticateToken, videoController.uploadVideo);
+router.post('/bulk-upload', authenticateToken, multer({ dest: 'uploads/temp' }).single('csv'), bulkUploadController.bulkUploadFromCSV);
+router.get('/upload-history', authenticateToken, bulkUploadController.getUploadHistory);
+
 // Test endpoint to verify routing
 router.get('/test-stream', (req, res) => {
   res.json({ message: 'Streaming route is accessible', timestamp: new Date().toISOString() });
+});
+
+// Test endpoint for QR codes route
+router.get('/test-qr-codes', (req, res) => {
+  res.json({ 
+    message: 'QR codes route is accessible', 
+    timestamp: new Date().toISOString(),
+    route: '/api/videos/qr-codes',
+    note: 'This is a test endpoint. The actual route is /qr-codes'
+  });
 });
 
 // Simple streaming test endpoint
@@ -44,13 +118,18 @@ router.get('/debug/routes', (req, res) => {
     message: 'Video routes debug',
     routes: [
       'GET /api/videos/',
+      'GET /api/videos/filters',
+      'GET /api/videos/misc-videos (protected)',
+      'GET /api/videos/qr-codes (protected)',
       'GET /api/videos/test-stream',
       'GET /api/videos/:videoId/stream',
       'GET /api/videos/:videoId',
       'POST /api/videos/upload (protected)',
+      'POST /api/videos/bulk-upload (protected)',
       'PUT /api/videos/:id (protected)',
       'DELETE /api/videos/:id (protected)',
-      'GET /api/videos/:videoId/versions (protected)'
+      'GET /api/videos/:videoId/versions (protected)',
+      'GET /api/videos/:videoId/qr-download (protected)'
     ]
   });
 });
@@ -69,11 +148,51 @@ router.get('/:videoId/stream-test', (req, res) => {
 // Streaming route - MUST be before /:videoId to avoid route conflict
 router.options('/:videoId/stream', (req, res) => {
   console.log('[Route] OPTIONS request for stream:', req.params.videoId);
-  res.header('Access-Control-Allow-Origin', '*');
+  console.log('[Route] OPTIONS headers:', {
+    origin: req.headers.origin,
+    'access-control-request-method': req.headers['access-control-request-method'],
+    'access-control-request-headers': req.headers['access-control-request-headers']
+  });
+  
+  // Set CORS headers for preflight
+  const origin = req.headers.origin;
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
   res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Range, Content-Type, Accept');
+  res.header('Access-Control-Allow-Headers', 'Range, Content-Type, Accept, Origin, X-Requested-With');
   res.header('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
   res.sendStatus(200);
+});
+
+// HEAD handler for streaming endpoint (for CORS preflight and metadata)
+router.head('/:videoId/stream', async (req, res, next) => {
+  console.log('[Route] HEAD request for stream:', req.params.videoId);
+  
+  // Set CORS headers
+  const origin = req.headers.origin;
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
+  res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Range, Content-Type, Accept, Origin, X-Requested-With');
+  res.header('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  try {
+    await streamController.streamVideo(req, res, next);
+  } catch (error) {
+    console.error('[Route] Error in HEAD stream controller:', error);
+    if (!res.headersSent) {
+      res.status(500).end();
+    }
+  }
 });
 
 router.get('/:videoId/stream', async (req, res, next) => {
@@ -88,6 +207,7 @@ router.get('/:videoId/stream', async (req, res, next) => {
   });
   console.log('[Route] Headers:', {
     range: req.headers.range,
+    origin: req.headers.origin,
     'user-agent': req.headers['user-agent']
   });
   
@@ -97,6 +217,13 @@ router.get('/:videoId/stream', async (req, res, next) => {
     console.error('[Route] Error in stream controller:', error);
     console.error('[Route] Error stack:', error.stack);
     if (!res.headersSent) {
+      // Set CORS headers even for errors
+      const origin = req.headers.origin;
+      if (origin) {
+        res.header('Access-Control-Allow-Origin', origin);
+      } else {
+        res.header('Access-Control-Allow-Origin', '*');
+      }
       res.status(500).json({ 
         error: 'Streaming error', 
         message: error.message,
@@ -106,13 +233,12 @@ router.get('/:videoId/stream', async (req, res, next) => {
   }
 });
 
-router.get('/:videoId', videoController.getVideo);
-
-// Protected admin routes
-router.post('/upload', authenticateToken, videoController.uploadVideo);
 router.put('/:id', authenticateToken, videoController.updateVideo);
 router.delete('/:id', authenticateToken, videoController.deleteVideo);
 router.get('/:videoId/versions', authenticateToken, videoController.getVideoVersions);
+
+// Public routes - must be after specific routes
+router.get('/:videoId', videoController.getVideo);
 
 export default router;
 

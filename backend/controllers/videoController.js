@@ -205,15 +205,18 @@ export const uploadVideo = [
       
       const streamingUrl = videoService.buildStreamingUrl(relativePath, videoId);
       const redirectSlug = videoId;
-      const redirectUrl = `${config.urls.frontend}/video/${videoId}`;
+      // Redirect to stream page so users can directly watch the video
+      const redirectUrl = `${config.urls.frontend}/stream/${videoId}`;
       
-      console.log('Creating redirect...');
-      // Create redirect
-      await redirectService.createRedirect(redirectSlug, redirectUrl);
+      console.log('Creating redirect with short URL to stream page...');
+      // Create redirect with short URL
+      const redirectResult = await redirectService.createRedirect(redirectSlug, redirectUrl, true);
+      const shortUrl = redirectResult.shortUrl || redirectUrl;
+      const shortSlug = redirectResult.shortSlug || redirectSlug;
       
-      console.log('Generating QR code...');
-      // Generate QR code
-      const qrUrl = await qrCodeService.generateQRCode(videoId, redirectUrl);
+      console.log('Generating QR code with short URL...');
+      // Generate QR code with short URL
+      const qrUrl = await qrCodeService.generateQRCode(videoId, shortUrl);
       
       // Handle thumbnail: use uploaded thumbnail if provided, otherwise generate from video
       let thumbnailUrl = null;
@@ -282,7 +285,7 @@ export const uploadVideo = [
         streamingUrl,
         qrUrl,
         thumbnailUrl: thumbnailUrl || null,
-        redirectSlug,
+        redirectSlug: shortSlug, // Use short slug for redirect
         duration,
         size,
         version: latestVersion,
@@ -384,7 +387,7 @@ export async function getVideo(req, res) {
  */
 export async function getAllVideos(req, res) {
   try {
-    const { course, grade, lesson, module, activity, unit, status, search } = req.query;
+    const { search, course, grade, lesson, module, activity, unit, status } = req.query;
     const filters = {};
     
     if (search) filters.search = search;
@@ -405,7 +408,7 @@ export async function getAllVideos(req, res) {
 }
 
 /**
- * Get filter values for dropdowns
+ * Get unique filter values for dropdowns
  */
 export async function getFilterValues(req, res) {
   try {
@@ -621,6 +624,105 @@ export async function getVideoVersions(req, res) {
   } catch (error) {
     console.error('Get versions error:', error);
     res.status(500).json({ error: 'Failed to fetch versions' });
+  }
+}
+
+/**
+ * Download QR code as PNG file
+ */
+export async function downloadQRCode(req, res) {
+  try {
+    const { videoId } = req.params;
+    console.log(`[Download QR] Request for videoId: ${videoId}`);
+    
+    // Get video to get redirect URL
+    const video = await videoService.getVideoByVideoId(videoId, true);
+    if (!video) {
+      console.error(`[Download QR] Video not found: ${videoId}`);
+      return res.status(404).json({ error: 'Video not found' });
+    }
+    
+    // Build short URL
+    const shortUrl = video.redirect_slug 
+      ? `${config.urls.base}/${video.redirect_slug}`
+      : `${config.urls.base}/${video.video_id}`;
+    
+    console.log(`[Download QR] Short URL: ${shortUrl}`);
+    
+    // Try to download existing QR code, or generate if it doesn't exist
+    let qrBuffer;
+    try {
+      qrBuffer = await qrCodeService.downloadQRCode(videoId);
+      console.log(`[Download QR] Found existing QR code for ${videoId}`);
+    } catch (error) {
+      // QR code doesn't exist, generate it
+      console.log(`[Download QR] QR code not found for ${videoId}, generating...`);
+      try {
+        await qrCodeService.generateQRCode(videoId, shortUrl);
+        console.log(`[Download QR] Successfully generated QR code for ${videoId}`);
+        qrBuffer = await qrCodeService.downloadQRCode(videoId);
+      } catch (genError) {
+        console.error(`[Download QR] Error generating QR code:`, genError);
+        throw new Error(`Failed to generate QR code: ${genError.message}`);
+      }
+    }
+    
+    if (!qrBuffer) {
+      throw new Error('QR code buffer is empty');
+    }
+    
+    console.log(`[Download QR] Sending QR code for ${videoId}, size: ${qrBuffer.length} bytes`);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `attachment; filename="${videoId}_qr_code.png"`);
+    res.send(qrBuffer);
+  } catch (error) {
+    console.error('[Download QR] Error:', error);
+    console.error('[Download QR] Stack:', error.stack);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Failed to generate or download QR code', 
+        message: error.message,
+        videoId: req.params.videoId
+      });
+    }
+  }
+}
+
+/**
+ * Get all videos with QR codes and short URLs
+ */
+export async function getAllQRCodes(req, res) {
+  try {
+    const videos = await videoService.getAllVideos({ status: 'active' });
+    
+    // Enrich with short URLs and QR code info
+    const qrCodes = videos.map(video => {
+      const shortUrl = video.redirect_slug 
+        ? `${config.urls.base}/${video.redirect_slug}`
+        : `${config.urls.base}/${video.video_id}`;
+      
+      return {
+        videoId: video.video_id,
+        title: video.title || 'Untitled Video',
+        course: video.course,
+        grade: video.grade,
+        lesson: video.lesson,
+        module: video.module,
+        activity: video.activity,
+        topic: video.topic,
+        language: video.language || 'en',
+        shortUrl,
+        shortSlug: video.redirect_slug || video.video_id,
+        qrUrl: video.qr_url,
+        createdAt: video.created_at,
+        updatedAt: video.updated_at
+      };
+    });
+    
+    res.json(qrCodes);
+  } catch (error) {
+    console.error('Get all QR codes error:', error);
+    res.status(500).json({ error: 'Failed to fetch QR codes' });
   }
 }
 

@@ -9,6 +9,8 @@ import videoRoutes from './routes/videoRoutes.js';
 import redirectRoutes from './routes/redirectRoutes.js';
 import captionRoutes from './routes/captionRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import userRoutes from './routes/userRoutes.js';
+import cloudflareRoutes from './routes/cloudflareRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,8 +19,29 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: config.urls.frontend,
-  credentials: true
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Allow requests from frontend URL or any localhost/127.0.0.1
+    const allowedOrigins = [
+      config.urls.frontend,
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://127.0.0.1:5173',
+      'http://127.0.0.1:3000'
+    ];
+    
+    if (allowedOrigins.includes(origin) || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all origins for development
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept', 'Origin', 'X-Requested-With'],
+  exposedHeaders: ['Content-Range', 'Content-Length', 'Accept-Ranges', 'Content-Type']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -44,6 +67,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/videos', videoRoutes);
 app.use('/api/captions', captionRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/cloudflare', cloudflareRoutes);
 
 // Redirect routes (must be after API routes but before catch-all)
 app.use('/', redirectRoutes);

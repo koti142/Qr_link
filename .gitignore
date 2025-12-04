@@ -1,29 +1,35 @@
 # Dependencies
 node_modules/
-**/node_modules/
-
-# Video storage - DO NOT COMMIT VIDEOS
-video-storage/
-qr-codes/
-*.mp4
-*.mov
-*.avi
-*.mkv
-*.webm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Environment variables
 .env
 .env.local
-.env.*.local
-backend/.env
-frontend/.env
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build outputs
+frontend/dist/
+frontend/build/
+backend/dist/
+
+# Video storage (keep structure, ignore files)
+video-storage/**/*.mp4
+video-storage/**/*.webm
+video-storage/**/*.mov
+video-storage/**/*.avi
+video-storage/**/*.mkv
+
+# QR codes
+qr-codes/*.png
+qr-codes/*.jpg
 
 # Logs
 logs/
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
 # OS files
 .DS_Store
@@ -38,21 +44,12 @@ Thumbs.db
 *.sublime-project
 *.sublime-workspace
 
-# Build outputs
-dist/
-build/
-*.dist
-
 # Temporary files
 tmp/
 temp/
 *.tmp
 
-# Database
-*.sqlite
-*.db
 
-# Package manager locks (optional - some prefer to commit these)
-# package-lock.json
-# yarn.lock
+
+
 

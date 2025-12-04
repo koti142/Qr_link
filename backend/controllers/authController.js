@@ -1,60 +1,96 @@
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import pool from '../config/database.js';
-import config from '../config/config.js';
+import { generateToken } from '../middleware/auth.js';
 
+/**
+ * Admin login
+ */
 export async function login(req, res) {
   try {
     const { username, password } = req.body;
-
+    
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password required' });
     }
-
+    
+    // For initial setup, use default admin credentials
+    // In production, these should be in the database
+    const defaultAdmin = {
+      username: process.env.ADMIN_USERNAME || 'admin',
+      password: process.env.ADMIN_PASSWORD || 'admin123'
+    };
+    
+    // Check if admin exists in database
     const [users] = await pool.execute(
-      'SELECT * FROM admins WHERE username = ? AND is_active = 1',
+      `SELECT 
+        id, username, email, full_name, role, 
+        can_upload_videos, can_view_videos, can_check_links, can_check_qr_codes,
+        is_active
+      FROM admins WHERE username = ?`,
       [username]
     );
-
-    if (users.length === 0) {
+    
+    let isValid = false;
+    let user = null;
+    
+    if (users.length > 0) {
+      // User exists in database
+      user = users[0];
+      
+      // Check if user is active
+      if (user.is_active === 0 || user.is_active === false) {
+        return res.status(403).json({ error: 'Account is inactive. Please contact administrator.' });
+      }
+      
+      // Verify password
+      const [fullUser] = await pool.execute(
+        'SELECT password_hash FROM admins WHERE id = ?',
+        [user.id]
+      );
+      isValid = await bcrypt.compare(password, fullUser[0].password_hash);
+    } else {
+      // Fallback to default admin (for initial setup)
+      isValid = username === defaultAdmin.username && password === defaultAdmin.password;
+      if (isValid) {
+        user = {
+          id: null,
+          username: defaultAdmin.username,
+          role: 'admin',
+          can_upload_videos: true,
+          can_view_videos: true,
+          can_check_links: true,
+          can_check_qr_codes: true,
+          is_active: true
+        };
+      }
+    }
+    
+    if (!isValid) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-
-    const user = users[0];
-    const validPassword = await bcrypt.compare(password, user.password);
-
-    if (!validPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const token = jwt.sign(
-      { 
-        id: user.id, 
-        username: user.username,
-        role: user.role || 'admin'
-      },
-      config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn }
-    );
-
+    
     // Update last login
-    await pool.execute(
-      'UPDATE admins SET last_login = NOW() WHERE id = ?',
-      [user.id]
-    );
-
+    if (user.id) {
+      await pool.execute(
+        'UPDATE admins SET last_login = CURRENT_TIMESTAMP WHERE id = ?',
+        [user.id]
+      );
+    }
+    
+    const token = generateToken(user.id || username);
+    
     res.json({
       token,
       user: {
         id: user.id,
         username: user.username,
+        email: user.email,
         full_name: user.full_name,
         role: user.role || 'admin',
-        can_upload_videos: user.can_upload_videos || 0,
-        can_view_videos: user.can_view_videos || 0,
-        can_check_links: user.can_check_links || 0,
-        can_check_qr_codes: user.can_check_qr_codes || 0,
-        is_active: user.is_active
+        can_upload_videos: user.can_upload_videos || false,
+        can_view_videos: user.can_view_videos || false,
+        can_check_links: user.can_check_links || false,
+        can_check_qr_codes: user.can_check_qr_codes || false
       }
     });
   } catch (error) {
@@ -63,57 +99,17 @@ export async function login(req, res) {
   }
 }
 
-export async function register(req, res) {
-  try {
-    const { username, password, full_name, role } = req.body;
-
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password required' });
-    }
-
-    // Check if user exists
-    const [existing] = await pool.execute(
-      'SELECT id FROM admins WHERE username = ?',
-      [username]
-    );
-
-    if (existing.length > 0) {
-      return res.status(400).json({ error: 'Username already exists' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const [result] = await pool.execute(
-      'INSERT INTO admins (username, password, full_name, role, is_active) VALUES (?, ?, ?, ?, 1)',
-      [username, hashedPassword, full_name || null, role || 'admin']
-    );
-
-    res.status(201).json({ 
-      message: 'User created successfully',
-      id: result.insertId 
-    });
-  } catch (error) {
-    console.error('Register error:', error);
-    res.status(500).json({ error: 'Registration failed' });
-  }
+/**
+ * Verify token
+ */
+export async function verifyToken(req, res) {
+  res.json({
+    valid: true,
+    user: req.user
+  });
 }
 
-export async function getMe(req, res) {
-  try {
-    const userId = req.user.id;
-    const [users] = await pool.execute(
-      'SELECT id, username, full_name, role, can_upload_videos, can_view_videos, can_check_links, can_check_qr_codes, is_active FROM admins WHERE id = ?',
-      [userId]
-    );
 
-    if (users.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
 
-    res.json(users[0]);
-  } catch (error) {
-    console.error('Get me error:', error);
-    res.status(500).json({ error: 'Failed to fetch user' });
-  }
-}
+
 

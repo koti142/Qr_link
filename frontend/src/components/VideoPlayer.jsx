@@ -27,6 +27,24 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null }) {
   const [loading, setLoading] = useState(true);
   const [isHLS, setIsHLS] = useState(false);
   const [hlsSupported, setHlsSupported] = useState(false);
+  
+  // Check if URL is a mock Cloudflare URL - MUST match StreamPage's detection exactly
+  const isMockUrl = (url) => {
+    if (!url || typeof url !== 'string') return false;
+    const urlLower = url.toLowerCase();
+    // Check for all known mock URL patterns - MUST match StreamPage
+    return urlLower.includes('your-account.r2.cloudflarestorage.com') ||
+           urlLower.includes('r2.cloudflarestorage.com') ||
+           urlLower.includes('mock-cloudflare.example.com') ||
+           (urlLower.includes('example.com') && !urlLower.includes('pub-')) ||
+           urlLower.includes('test.cloudflare') ||
+           (urlLower.includes('cloudflare.com/') && !urlLower.includes('pub-')) ||
+           urlLower.includes('cloudflarestorage.com'); // Catch all cloudflarestorage.com URLs
+  };
+  
+  // NEVER use mock URLs - StreamPage should have converted them, but add safety check
+  // If we somehow receive a mock URL, don't use it
+  const safeSrc = src && isMockUrl(src) ? null : src;
 
   /**
    * Check if browser natively supports HLS (Safari)
@@ -108,30 +126,61 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null }) {
    * Setup video element and load source
    */
   useEffect(() => {
-    if (!src || !videoRef.current) return;
+    // StreamPage should have already converted mock URLs to local streaming URLs
+    // But add safety check: NEVER load mock URLs
+    
+    // If no valid source, don't try to load
+    if (!src || !videoRef.current) {
+      setLoading(false);
+      if (!src) {
+        setError({ message: 'No video source provided' });
+      }
+      return;
+    }
+    
+    // CRITICAL: If we somehow still get a mock URL, don't load it
+    // StreamPage should have converted it, but if not, we'll skip loading
+    if (isMockUrl(src)) {
+      console.error('CRITICAL: Mock URL received in VideoPlayer! This should not happen. StreamPage should have converted it.');
+      console.error('Mock URL:', src);
+      setLoading(false);
+      setError({ message: 'Invalid video URL. Please contact support.' });
+      return; // Don't try to load mock URLs
+    }
 
     const videoElement = videoRef.current;
     setLoading(true);
     setError(null);
 
+    // Use safeSrc (which filters out mock URLs) - StreamPage should have already converted mock URLs
+    // But add extra safety: if src is a mock URL, safeSrc will be null and we should not load
+    if (!safeSrc) {
+      console.error('No safe source available - mock URL detected or no source provided');
+      setLoading(false);
+      setError({ message: 'Invalid video source. Please contact support.' });
+      return;
+    }
+    
+    const videoSrc = safeSrc; // Use safeSrc which has mock URLs filtered out
+
     // Check if this is an HLS stream
-    const isHLS = isHLSStream(src);
+    const isHLS = isHLSStream(videoSrc);
     setIsHLS(isHLS);
 
     if (isHLS) {
       // Check for native HLS support (Safari)
       if (checkNativeHLSSupport()) {
         console.log('Using native HLS support (Safari)');
-        videoElement.src = src;
+        videoElement.src = videoSrc;
         setHlsSupported(true);
       } else {
         // Use HLS.js for other browsers
-        initializeHLS(videoElement, src);
+        initializeHLS(videoElement, videoSrc);
       }
     } else {
       // Regular MP4/WebM video - use native HTML5 player
       console.log('Using native HTML5 video player');
-      videoElement.src = src;
+      videoElement.src = videoSrc;
     }
 
     // Event handlers for video element
@@ -171,16 +220,42 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null }) {
             errorMessage = 'Video loading aborted';
             break;
           case videoError.MEDIA_ERR_NETWORK:
-            errorMessage = 'Network error while loading video';
+            // Don't show errors for mock URLs - StreamPage should have handled fallback
+            if (src && isMockUrl(src)) {
+              // Silent fallback - don't show error, StreamPage will use local file
+              console.log('Network error for mock URL (expected), StreamPage should handle fallback');
+              return; // Don't set error for mock URLs
+            } else {
+              errorMessage = 'Network error while loading video. The video URL may be inaccessible or the server may be down.';
+            }
             break;
           case videoError.MEDIA_ERR_DECODE:
-            errorMessage = 'Video decoding error';
+            errorMessage = 'Video decoding error. The video file may be corrupted.';
             break;
           case videoError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-            errorMessage = 'Video format not supported';
+            // Don't show errors for mock URLs - StreamPage should have handled fallback
+            if (src && isMockUrl(src)) {
+              // Silent fallback - don't show error, StreamPage will use local file
+              console.log('Source not supported for mock URL (expected), StreamPage should handle fallback');
+              return; // Don't set error for mock URLs
+            }
+            // Check if it's a Cloudflare URL that might not be accessible
+            if (src && (src.includes('cloudflare') || src.startsWith('http'))) {
+              errorMessage = 'Video URL not accessible. The Cloudflare URL may be invalid, the video may not exist, or there may be SSL/CORS issues.';
+            } else {
+              errorMessage = 'Video format not supported. The local file may be missing or corrupted.';
+            }
             break;
           default:
             errorMessage = `Video error (code: ${videoError.code})`;
+        }
+      } else {
+        // Network-level error (like SSL errors)
+        // Don't show errors for mock URLs - StreamPage should have handled fallback
+        if (src && isMockUrl(src)) {
+          // Silent fallback - don't show error, StreamPage will use local file
+          console.log('Network error for mock URL (expected), StreamPage should handle fallback');
+          return; // Don't set error for mock URLs
         }
       }
       
@@ -276,25 +351,27 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null }) {
         </div>
       )}
 
-      {/* Error display */}
-      {error && (
+      {/* Error display - Don't show errors for mock URLs (they auto-fallback silently) */}
+      {error && !(src && isMockUrl(src)) && (
         <div className="absolute inset-0 bg-red-900 bg-opacity-90 flex items-center justify-center z-10">
           <div className="text-center max-w-md p-4">
             <p className="font-bold mb-2 text-lg text-white">Video Error</p>
             <p className="text-sm text-white mb-4">{error.message}</p>
             <p className="text-xs text-white opacity-75 mb-4 break-all">URL: {src}</p>
-            <button
-              onClick={() => {
-                setError(null);
-                setLoading(true);
-                if (videoRef.current) {
-                  videoRef.current.load();
-                }
-              }}
-              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm text-white transition-colors"
-            >
-              Retry
-            </button>
+            <div className="flex gap-2 justify-center">
+              <button
+                onClick={() => {
+                  setError(null);
+                  setLoading(true);
+                  if (videoRef.current) {
+                    videoRef.current.load();
+                  }
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm text-white transition-colors"
+              >
+                Retry
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -305,8 +382,9 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null }) {
           ref={videoRef}
           className="absolute top-0 left-0 w-full h-full"
           controls
-          preload="metadata"
+          preload="auto"
           playsInline
+          autoPlay={autoplay}
           crossOrigin="anonymous"
           poster={poster || undefined}
           style={{

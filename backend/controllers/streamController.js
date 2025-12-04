@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import config from '../config/config.js';
 import * as videoService from '../services/videoService.js';
+import * as redirectService from '../services/redirectService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,21 +33,80 @@ function getContentType(filePath) {
 export async function streamVideo(req, res) {
   try {
     const { videoId } = req.params;
+    // Check if this is a short slug route using the flag set by the route handler
+    const isShortSlugRoute = req.isShortSlugRoute === true;
+    
+    // Handle URL-encoded video IDs (e.g., "AllAboutMyFamily2_Prek2_Lesson3_M3_Emotions")
+    // Decode the videoId in case it's URL-encoded
+    let decodedVideoId;
+    try {
+      decodedVideoId = decodeURIComponent(videoId);
+      if (decodedVideoId !== videoId) {
+        console.log('Video ID was URL-encoded, decoded to:', decodedVideoId);
+      }
+    } catch (e) {
+      // If decoding fails, use original
+      decodedVideoId = videoId;
+    }
+    
+    // Use decoded video ID for lookups
+    const lookupId = decodedVideoId || videoId;
+    
     console.log('===== STREAM CONTROLLER CALLED =====');
     console.log('Stream request received for videoId:', videoId);
+    console.log('Decoded videoId:', lookupId);
+    console.log('Is short slug route:', isShortSlugRoute);
     console.log('Request details:', {
       method: req.method,
       url: req.url,
+      originalUrl: req.originalUrl,
       path: req.path,
       params: req.params,
-      query: req.query
+      query: req.query,
+      isShortSlugRoute: req.isShortSlugRoute
     });
     
-    // Get video from database - try active first, then include inactive
-    let video = await videoService.getVideoByVideoId(videoId, false);
+    // If this is a short slug route (/s/:slug), check redirect_slug first
+    // Otherwise, check videoId first (for /api/videos/:videoId/stream)
+    let video;
+    if (isShortSlugRoute) {
+      // For short slug routes, check redirect_slug first
+      console.log('Checking for video by redirect_slug (short link)...');
+      video = await videoService.getVideoByRedirectSlug(lookupId, false);
+      if (video) {
+        console.log(`Found video by short slug: ${lookupId} -> ${video.video_id}`);
+      } else {
+        // Fallback to videoId lookup
+        console.log('Not found by redirect_slug, trying videoId...');
+        video = await videoService.getVideoByVideoId(lookupId, false);
+      }
+    } else {
+      // For regular routes, check videoId first
+      video = await videoService.getVideoByVideoId(lookupId, false);
+      if (!video) {
+        console.log('Video not found by videoId, checking if it\'s a short slug...');
+        // Try to find video by redirect_slug (short link)
+        video = await videoService.getVideoByRedirectSlug(lookupId, false);
+        if (video) {
+          console.log(`Found video by short slug: ${lookupId} -> ${video.video_id}`);
+        }
+      }
+    }
+    
     if (!video) {
       console.log('Video not found with active status, trying to include inactive videos...');
-      video = await videoService.getVideoByVideoId(videoId, true);
+      if (isShortSlugRoute) {
+        video = await videoService.getVideoByRedirectSlug(lookupId, true);
+        if (!video) {
+          video = await videoService.getVideoByVideoId(lookupId, true);
+        }
+      } else {
+        video = await videoService.getVideoByVideoId(lookupId, true);
+        if (!video) {
+          // Try redirect slug with inactive videos
+          video = await videoService.getVideoByRedirectSlug(lookupId, true);
+        }
+      }
       if (video) {
         console.log('Video found but status is:', video.status);
       }
@@ -54,20 +114,97 @@ export async function streamVideo(req, res) {
     
     if (!video) {
       console.error('Video not found in database for videoId:', videoId);
+      console.error('Decoded videoId:', lookupId);
+      console.error('Lookup details:', {
+        isShortSlugRoute,
+        triedRedirectSlug: isShortSlugRoute,
+        triedVideoId: true,
+        originalVideoId: videoId,
+        decodedVideoId: lookupId
+      });
+      // Set CORS headers for error response
+      const origin = req.headers.origin;
+      if (origin) {
+        res.header('Access-Control-Allow-Origin', origin);
+      } else {
+        res.header('Access-Control-Allow-Origin', '*');
+      }
       return res.status(404).json({ 
         error: 'Video not found',
         videoId: videoId,
-        suggestion: 'Check if video exists and has status "active"'
+        isShortSlugRoute: isShortSlugRoute,
+        suggestion: isShortSlugRoute 
+          ? 'Check if video exists with this redirect_slug and has status "active"'
+          : 'Check if video exists and has status "active"'
       });
     }
     
     console.log('Video found:', {
       videoId: video.video_id,
       filePath: video.file_path,
+      streamingUrl: video.streaming_url,
       uploadPath: config.upload.uploadPath
     });
     
-    // Build full file path - handle both relative and absolute paths
+    // Check if video has a Cloudflare URL (remote URL)
+    const cloudflareUrl = video.streaming_url || video.file_path;
+    const isCloudflareUrl = cloudflareUrl && (cloudflareUrl.startsWith('http://') || cloudflareUrl.startsWith('https://'));
+    
+    // Check if it's a mock/test Cloudflare URL
+    // Real Cloudflare R2 URLs typically look like: https://[account-id].r2.cloudflarestorage.com/[bucket]/[file]
+    // or custom domains like: https://[custom-domain]/[file]
+    const isMockUrl = isCloudflareUrl && (
+      cloudflareUrl.includes('your-account.r2.cloudflarestorage.com') ||
+      cloudflareUrl.includes('mock-cloudflare.example.com') ||
+      (cloudflareUrl.includes('example.com') && !cloudflareUrl.includes('pub-')) || // Allow real example.com URLs
+      cloudflareUrl.includes('test.cloudflare')
+    );
+    
+    if (isCloudflareUrl && !isMockUrl) {
+      // Check if the Cloudflare URL points back to our own server (would cause redirect loop)
+      try {
+        const urlObj = new URL(cloudflareUrl);
+        const currentHost = req.get('host') || req.hostname || 'localhost:5000';
+        const cloudflareHost = urlObj.hostname + (urlObj.port ? `:${urlObj.port}` : '');
+        
+        // Check if it's pointing to our own server
+        const isOwnServer = cloudflareHost.includes('localhost') || 
+                           cloudflareHost.includes('127.0.0.1') ||
+                           (urlObj.pathname && urlObj.pathname.includes('/api/videos/') && urlObj.pathname.includes('/stream'));
+        
+        if (isOwnServer) {
+          console.warn('Cloudflare URL points to our own server, preventing redirect loop:', cloudflareUrl);
+          console.warn('Attempting to find local file instead...');
+          // Don't redirect, continue to local file search below
+        } else {
+          // Only redirect to real external Cloudflare URLs
+          console.log('Video has Cloudflare URL, redirecting to:', cloudflareUrl);
+          // For Cloudflare URLs, redirect directly to the URL
+          // Set CORS headers
+          const origin = req.headers.origin;
+          if (origin) {
+            res.header('Access-Control-Allow-Origin', origin);
+          } else {
+            res.header('Access-Control-Allow-Origin', '*');
+          }
+          res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+          res.header('Access-Control-Allow-Headers', 'Range, Content-Type, Accept, Origin, X-Requested-With');
+          res.header('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges');
+          res.header('Access-Control-Allow-Credentials', 'true');
+          
+          // Redirect to Cloudflare URL
+          return res.redirect(302, cloudflareUrl);
+        }
+      } catch (urlError) {
+        console.warn('Error parsing Cloudflare URL, treating as invalid:', urlError.message);
+        // Don't redirect if URL is invalid, continue to local file search
+      }
+    } else if (isMockUrl) {
+      console.warn('Mock Cloudflare URL detected, attempting to find local file instead:', cloudflareUrl);
+      // Don't redirect to mock URL, continue to local file search below
+    }
+    
+    // Build full file path - handle both relative and absolute paths (for local files)
     let filePath;
     if (path.isAbsolute(video.file_path)) {
       filePath = video.file_path;
@@ -107,7 +244,9 @@ export async function streamVideo(req, res) {
     
     // If file_path is just a filename, try misc folder
     const fileName = path.basename(video.file_path);
-    possiblePaths.push(path.join(miscPath, fileName));
+    if (fileName) {
+      possiblePaths.push(path.join(miscPath, fileName));
+    }
     
     // If file_path includes misc, try direct join
     if (video.file_path.includes('misc') || video.file_path.includes('MISC')) {
@@ -116,49 +255,102 @@ export async function streamVideo(req, res) {
       possiblePaths.push(path.join(miscPath, fileName));
     }
     
-    // Strategy 3: Try with upload path structure
-    possiblePaths.push(path.join(uploadPath, video.file_path));
+    // Strategy 3: Try with upload path structure (normalize separators)
+    const normalizedFilePath = video.file_path.replace(/\\/g, '/');
+    possiblePaths.push(path.join(uploadPath, normalizedFilePath));
     
-    // Strategy 4: If file_path doesn't include folder, try adding misc (most common case)
+    // Strategy 4: Try with Windows-style separators
+    if (normalizedFilePath.includes('/')) {
+      possiblePaths.push(path.join(uploadPath, ...normalizedFilePath.split('/')));
+    }
+    
+    // Strategy 5: If file_path doesn't include folder, try adding misc (most common case)
     if (!video.file_path.includes('/') && !video.file_path.includes('\\')) {
       possiblePaths.push(path.join(miscPath, video.file_path));
     }
     
-    // Strategy 5: Try original upload path structure (relative to backend)
-    possiblePaths.push(path.resolve(basePath, '..', 'video-storage', video.file_path));
+    // Strategy 6: Try original upload path structure (relative to backend)
+    possiblePaths.push(path.resolve(basePath, '..', 'video-storage', normalizedFilePath));
     
-    // Strategy 6: Try absolute path if it looks like a Windows path
+    // Strategy 7: Try with each folder level separately
+    if (normalizedFilePath.includes('/')) {
+      const parts = normalizedFilePath.split('/');
+      possiblePaths.push(path.resolve(uploadPath, ...parts));
+    }
+    
+    // Strategy 8: Try absolute path if it looks like a Windows path
     if (video.file_path.includes('\\') || video.file_path.includes('/')) {
       possiblePaths.push(path.resolve(video.file_path));
     }
     
-    // Remove duplicates and log
+    // Remove duplicates and create uniquePaths for logging/error reporting
     const uniquePaths = [...new Set(possiblePaths)];
-    console.log('All possible paths to try:', uniquePaths);
     
-    // Find the first path that exists
-    filePath = uniquePaths.find(p => {
+    // PRIORITY: Check misc folder first since files are often stored there
+    // Use the fileName already extracted above
+    if (fs.existsSync(miscPath) && !filePath) {
       try {
-        const exists = fs.existsSync(p);
-        if (exists) {
-          console.log('✓ Found file at:', p);
+        const miscFiles = fs.readdirSync(miscPath).filter(f => 
+          f.endsWith('.mp4') || f.endsWith('.mov') || f.endsWith('.webm')
+        );
+        
+        // Try exact filename match first
+        const exactMatch = miscFiles.find(f => f === fileName);
+        if (exactMatch) {
+          const foundPath = path.join(miscPath, exactMatch);
+          if (fs.existsSync(foundPath)) {
+            filePath = foundPath;
+            console.log('✓✓✓ FOUND IN MISC (exact match):', filePath);
+          }
+        } else {
+          // Extract VID number and search
+          const vidMatch = fileName.match(/VID_(\d+)/);
+          if (vidMatch) {
+            const vidNumber = vidMatch[1];
+            const vidMatchFile = miscFiles.find(f => f.includes(`VID_${vidNumber}`));
+            if (vidMatchFile) {
+              const foundPath = path.join(miscPath, vidMatchFile);
+              if (fs.existsSync(foundPath)) {
+                filePath = foundPath;
+                console.log('✓✓✓ FOUND IN MISC (by VID number):', filePath);
+              }
+            }
+          }
         }
-        return exists;
-      } catch {
-        return false;
+      } catch (err) {
+        console.warn('Error checking misc folder first:', err.message);
       }
-    });
+    }
     
-    // If still not found, search misc folder by filename
+    // If not found in misc, try structured paths
+    if (!filePath) {
+      console.log('All possible structured paths to try:', uniquePaths);
+      
+      // Find the first path that exists
+      filePath = uniquePaths.find(p => {
+        try {
+          const exists = fs.existsSync(p);
+          if (exists) {
+            console.log('✓ Found file at structured path:', p);
+          }
+          return exists;
+        } catch {
+          return false;
+        }
+      });
+    }
+    
+    // If still not found, search misc folder by filename (fallback)
     if (!filePath) {
       if (fs.existsSync(miscPath)) {
         try {
-          const fileName = path.basename(video.file_path); // e.g., VID_1764675366468_master.mp4
+          const fileName = path.basename(video.file_path); // e.g., VID_1764745515981_master.mp4
           const miscFiles = fs.readdirSync(miscPath).filter(f => 
             f.endsWith('.mp4') || f.endsWith('.mov') || f.endsWith('.webm')
           );
           console.log('Searching misc folder for:', fileName);
-          console.log('Files in misc folder:', miscFiles);
+          console.log('Total video files in misc:', miscFiles.length);
+          console.log('Sample files:', miscFiles.slice(0, 5));
           
           // Try exact match first
           const exactMatch = miscFiles.find(f => f === fileName);
@@ -166,17 +358,35 @@ export async function streamVideo(req, res) {
             filePath = path.join(miscPath, exactMatch);
             console.log('✓ Found exact match in misc folder:', filePath);
           } else {
-            // Try partial match (match by video ID prefix)
-            const videoIdPrefix = fileName.split('_')[0]; // e.g., "VID_1764675366468"
-            const partialMatch = miscFiles.find(f => f.startsWith(videoIdPrefix));
-            if (partialMatch) {
-              filePath = path.join(miscPath, partialMatch);
-              console.log('✓ Found partial match in misc folder:', filePath);
-            } else {
-              // Try matching by any part of the filename
+            // Extract VID number from filename (e.g., "VID_1764745515981" from "VID_1764745515981_master.mp4")
+            const vidMatch = fileName.match(/VID_(\d+)/);
+            if (vidMatch) {
+              const vidNumber = vidMatch[1]; // e.g., "1764745515981"
+              console.log('Searching for VID number:', vidNumber);
+              
+              // Try to find file with this VID number
+              const vidMatchFile = miscFiles.find(f => f.includes(`VID_${vidNumber}`));
+              if (vidMatchFile) {
+                filePath = path.join(miscPath, vidMatchFile);
+                console.log('✓ Found file by VID number in misc folder:', filePath);
+              }
+            }
+            
+            // If still not found, try partial match (match by video ID prefix)
+            if (!filePath) {
+              const videoIdPrefix = fileName.split('_')[0]; // e.g., "VID"
+              const partialMatch = miscFiles.find(f => f.startsWith(videoIdPrefix));
+              if (partialMatch) {
+                filePath = path.join(miscPath, partialMatch);
+                console.log('✓ Found partial match in misc folder:', filePath);
+              }
+            }
+            
+            // If still not found, try matching by any part of the filename
+            if (!filePath) {
               const nameParts = fileName.split('_');
               const anyMatch = miscFiles.find(f => {
-                return nameParts.some(part => f.includes(part)) || f.includes(nameParts[0]);
+                return nameParts.some(part => part.length > 3 && f.includes(part));
               });
               if (anyMatch) {
                 filePath = path.join(miscPath, anyMatch);
@@ -186,20 +396,64 @@ export async function streamVideo(req, res) {
           }
         } catch (err) {
           console.error('Error searching misc folder:', err.message);
+          console.error('Error stack:', err.stack);
+        }
+      } else {
+        console.error('Misc folder does not exist:', miscPath);
+      }
+    }
+    
+    // Verify the file actually exists at the resolved path
+    if (filePath) {
+      const normalizedPath = path.normalize(filePath);
+      const fileExists = fs.existsSync(normalizedPath);
+      
+      if (fileExists) {
+        filePath = normalizedPath;
+        console.log('✓✓✓ FINAL: File verified and ready to stream at:', filePath);
+      } else {
+        console.error('WARNING: File path was set but file does not exist at:', normalizedPath);
+        console.error('Attempting to find file in misc folder as fallback...');
+        
+        // Last resort: search misc folder by VID number
+        if (fs.existsSync(miscPath)) {
+          try {
+            const miscFiles = fs.readdirSync(miscPath).filter(f => 
+              f.endsWith('.mp4') || f.endsWith('.mov') || f.endsWith('.webm')
+            );
+            
+            const vidMatch = fileName.match(/VID_(\d+)/);
+            if (vidMatch) {
+              const vidNumber = vidMatch[1];
+              const vidMatchFile = miscFiles.find(f => f.includes(`VID_${vidNumber}`));
+              if (vidMatchFile) {
+                const miscFilePath = path.join(miscPath, vidMatchFile);
+                if (fs.existsSync(miscFilePath)) {
+                  filePath = miscFilePath;
+                  console.log('✓✓✓ FOUND IN MISC (fallback search):', filePath);
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Error in fallback misc search:', err.message);
+          }
+        }
+        
+        // If still not found, reset filePath
+        if (!filePath || !fs.existsSync(filePath)) {
+          filePath = null;
         }
       }
     }
     
+    // If still no file found, use first path for error reporting
     if (!filePath) {
-      // Use the first calculated path for error reporting
       filePath = possiblePaths[0];
       console.error('None of the attempted paths exist:', uniquePaths);
-    } else {
-      console.log('✓✓✓ FINAL: Found file at:', filePath);
     }
     
-    // Check if file exists
-    if (!fs.existsSync(filePath)) {
+    // Final check if file exists
+    if (!filePath || !fs.existsSync(filePath)) {
       console.error('Video file not found at any attempted path');
       console.error('File path from database:', video.file_path);
       console.error('All attempted paths:', uniquePaths);
@@ -271,8 +525,31 @@ export async function streamVideo(req, res) {
       
       // Only return 404 if file still not found after all attempts
       if (!filePath || !fs.existsSync(filePath)) {
+        // Check if this was a mock Cloudflare URL
+        const cloudflareUrl = video.streaming_url || video.file_path;
+        const isMockUrl = cloudflareUrl && (
+          cloudflareUrl.includes('your-account.r2.cloudflarestorage.com') ||
+          cloudflareUrl.includes('mock-cloudflare.example.com') ||
+          cloudflareUrl.includes('example.com') ||
+          cloudflareUrl.includes('test.cloudflare')
+        );
+        
+        // Set CORS headers for error response
+        const origin = req.headers.origin;
+        if (origin) {
+          res.header('Access-Control-Allow-Origin', origin);
+        } else {
+          res.header('Access-Control-Allow-Origin', '*');
+        }
+        
+        const errorMessage = isMockUrl 
+          ? 'Video file not found. This video uses a mock Cloudflare URL and no local file is available. Please update the video with a real Cloudflare URL or upload a local file.'
+          : 'Video file not found';
+        
         return res.status(404).json({ 
-          error: 'Video file not found', 
+          error: errorMessage,
+          isMockUrl: isMockUrl,
+          cloudflareUrl: isMockUrl ? cloudflareUrl : undefined,
           attemptedPaths: uniquePaths,
           videoId: videoId,
           filePathFromDb: video.file_path,
@@ -285,6 +562,13 @@ export async function streamVideo(req, res) {
     
     // Verify file exists before proceeding
     if (!fs.existsSync(filePath)) {
+      // Set CORS headers for error response
+      const origin = req.headers.origin;
+      if (origin) {
+        res.header('Access-Control-Allow-Origin', origin);
+      } else {
+        res.header('Access-Control-Allow-Origin', '*');
+      }
       return res.status(404).json({ 
         error: 'Video file not found after all search attempts',
         videoId: videoId,
@@ -294,19 +578,43 @@ export async function streamVideo(req, res) {
     }
     
     console.log('✅✅✅ FILE EXISTS AND READY TO STREAM:', filePath);
+    console.log('File stats check:', {
+      exists: fs.existsSync(filePath),
+      path: filePath,
+      normalized: path.normalize(filePath)
+    });
     
     // Check if file is readable
     try {
       fs.accessSync(filePath, fs.constants.R_OK);
+      console.log('✓ File is readable');
     } catch (err) {
       console.error('Video file not readable:', filePath, err);
-      return res.status(403).json({ error: 'Video file not accessible' });
+      // Set CORS headers for error response
+      const origin = req.headers.origin;
+      if (origin) {
+        res.header('Access-Control-Allow-Origin', origin);
+      } else {
+        res.header('Access-Control-Allow-Origin', '*');
+      }
+      return res.status(403).json({ 
+        error: 'Video file not accessible',
+        filePath: filePath,
+        details: err.message
+      });
     }
     
     // Get file stats
     const stat = fs.statSync(filePath);
     const fileSize = stat.size;
     const range = req.headers.range;
+    
+    console.log('File stats:', {
+      size: fileSize,
+      sizeMB: (fileSize / (1024 * 1024)).toFixed(2),
+      range: range || 'none',
+      method: req.method
+    });
     
     // Detect content type from file extension
     const contentType = getContentType(filePath);
@@ -318,6 +626,42 @@ export async function streamVideo(req, res) {
       extension: path.extname(filePath)
     });
     
+    // Handle HEAD requests - send headers only, no body
+    if (req.method === 'HEAD') {
+      const origin = req.headers.origin;
+      const head = {
+        'Content-Length': fileSize,
+        'Content-Type': contentType,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'public, max-age=31536000',
+        'Access-Control-Allow-Origin': origin || '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Access-Control-Allow-Headers': 'Range, Content-Type, Accept, Origin, X-Requested-With',
+        'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+        'Access-Control-Allow-Credentials': 'true',
+      };
+      
+      if (range) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunksize = (end - start) + 1;
+        
+        if (start < fileSize && end < fileSize) {
+          head['Content-Range'] = `bytes ${start}-${end}/${fileSize}`;
+          head['Content-Length'] = chunksize;
+          res.writeHead(206, head);
+        } else {
+          res.writeHead(416, head);
+        }
+      } else {
+        res.writeHead(200, head);
+      }
+      
+      res.end();
+      return;
+    }
+    
     // If range header is present, handle partial content
     if (range) {
       // Parse range header
@@ -328,6 +672,13 @@ export async function streamVideo(req, res) {
       
       // Validate range
       if (start >= fileSize || end >= fileSize) {
+        // Set CORS headers for error response
+        const origin = req.headers.origin;
+        if (origin) {
+          res.header('Access-Control-Allow-Origin', origin);
+        } else {
+          res.header('Access-Control-Allow-Origin', '*');
+        }
         res.status(416).json({ error: 'Range Not Satisfiable' });
         return;
       }
@@ -336,39 +687,74 @@ export async function streamVideo(req, res) {
       const file = fs.createReadStream(filePath, { start, end });
       
       // Set headers for partial content
+      const origin = req.headers.origin;
       const head = {
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': chunksize,
         'Content-Type': contentType,
         'Cache-Control': 'public, max-age=31536000',
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': origin || '*',
         'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-        'Access-Control-Allow-Headers': 'Range, Content-Type, Accept',
+        'Access-Control-Allow-Headers': 'Range, Content-Type, Accept, Origin, X-Requested-With',
         'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+        'Access-Control-Allow-Credentials': 'true',
       };
       
+      console.log('Streaming range:', { start, end, chunksize, contentType });
       res.writeHead(206, head);
+      
+      // Handle stream errors
+      file.on('error', (err) => {
+        console.error('File stream error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Stream error', details: err.message });
+        }
+      });
+      
       file.pipe(res);
     } else {
-      // No range header - send full file
+      // No range header - send full file (but this shouldn't happen for video streaming)
+      // Videos should always use range requests for efficient streaming
+      console.log('No range header - sending full file (not recommended for large files)');
+      const origin = req.headers.origin;
       const head = {
         'Content-Length': fileSize,
         'Content-Type': contentType,
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'public, max-age=31536000',
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': origin || '*',
         'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-        'Access-Control-Allow-Headers': 'Range, Content-Type, Accept',
+        'Access-Control-Allow-Headers': 'Range, Content-Type, Accept, Origin, X-Requested-With',
         'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+        'Access-Control-Allow-Credentials': 'true',
       };
       
       res.writeHead(200, head);
-      fs.createReadStream(filePath).pipe(res);
+      const file = fs.createReadStream(filePath);
+      
+      // Handle stream errors
+      file.on('error', (err) => {
+        console.error('File stream error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Stream error', details: err.message });
+        }
+      });
+      
+      file.pipe(res);
     }
   } catch (error) {
     console.error('Stream video error:', error);
-    res.status(500).json({ error: 'Failed to stream video' });
+    // Set CORS headers for error response
+    if (!res.headersSent) {
+      const origin = req.headers.origin;
+      if (origin) {
+        res.header('Access-Control-Allow-Origin', origin);
+      } else {
+        res.header('Access-Control-Allow-Origin', '*');
+      }
+      res.status(500).json({ error: 'Failed to stream video' });
+    }
   }
 }
 
