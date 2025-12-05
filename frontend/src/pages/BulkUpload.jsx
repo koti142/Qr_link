@@ -220,37 +220,7 @@ function BulkUpload() {
         </div>
 
         {/* CSV Format Info */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 p-6 mb-6 shadow-sm">
-          <div className="flex items-start gap-3">
-            <FileCheck className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <h3 className="font-semibold text-gray-900 mb-2">CSV Format Required</h3>
-              <p className="text-sm text-gray-700 mb-3">
-                Your CSV should contain the following columns:
-              </p>
-              <div className="bg-white rounded-lg p-4 border border-blue-100">
-                <code className="text-xs text-gray-800 font-mono">
-                  Name, Video File, Thumbnail
-                </code>
-              </div>
-              <p className="text-xs text-gray-600 mt-3">
-                <strong>Required:</strong> Name, Video File (Cloudflare URL or file path)<br/>
-                <strong>Optional:</strong> Thumbnail (will use default if not provided)
-              </p>
-              <p className="text-xs text-gray-500 mt-2">
-                All other fields (course, grade, lesson, etc.) will be set to defaults automatically.
-              </p>
-              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-xs font-semibold text-blue-900 mb-2">Example CSV format:</p>
-                <code className="text-xs text-blue-800 block whitespace-pre">
-{`Name,Video File,Thumbnail
-My Video,https://example.com/video.mp4,thumbnails/default.png
-Another Video,https://example.com/video2.mp4,thumbnails/image.png`}
-                </code>
-              </div>
-            </div>
-          </div>
-        </div>
+       
 
         {/* Error Message */}
         {error && (
@@ -395,7 +365,7 @@ Another Video,https://example.com/video2.mp4,thumbnails/image.png`}
               <div className="mt-6">
                 <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
                   <AlertCircle className="w-5 h-5 text-red-600" />
-                  Error Details ({errors.length} errors)
+                  Error Details ({errors.length} error{errors.length !== 1 ? 's' : ''})
                 </h3>
                 <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
                   {errors.map((error, index) => {
@@ -410,24 +380,49 @@ Another Video,https://example.com/video2.mp4,thumbnails/image.png`}
                             : 'bg-red-50 border-red-400 hover:bg-red-100'
                         }`}
                       >
-                        <div className={`font-semibold mb-1 ${
+                        <div className={`font-semibold mb-2 ${
                           isDuplicate ? 'text-yellow-900' : 'text-red-900'
                         }`}>
-                          Row {error.row}: {error.video || 'Unknown Video'}
+                          Row {error.row || index + 1}: {error.video || 'Unknown Video'}
                         </div>
-                        <div className={`text-sm mb-1 ${
+                        <div className={`text-sm mb-2 whitespace-pre-wrap break-words ${
                           isDuplicate ? 'text-yellow-700' : 'text-red-700'
                         }`}>
-                          {isDuplicate ? 'ℹ️ ' : ''}{error.message}
+                          {isDuplicate ? 'ℹ️ ' : '❌ '}{error.message || 'No error message provided'}
                         </div>
                         {error.errorType && !isDuplicate && (
-                          <div className="text-xs text-red-600 mt-1">
-                            Type: {error.errorType}
-                            {error.errorCode && ` | Code: ${error.errorCode}`}
+                          <div className="text-xs text-red-600 mt-2 mb-1">
+                            <span className="font-semibold">Error Type:</span> {error.errorType}
+                            {error.errorCode && (
+                              <>
+                                <span className="mx-2">|</span>
+                                <span className="font-semibold">Code:</span> {error.errorCode}
+                              </>
+                            )}
                           </div>
                         )}
+                        {error.details && typeof error.details === 'object' && (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-xs font-semibold text-gray-700 hover:text-gray-900">
+                              Show Additional Details
+                            </summary>
+                            <pre className="mt-2 text-xs bg-white bg-opacity-70 p-2 rounded overflow-auto max-h-40 border border-gray-200">
+                              {JSON.stringify(error.details, null, 2)}
+                            </pre>
+                          </details>
+                        )}
+                        {error.stack && process.env.NODE_ENV === 'development' && (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-xs font-semibold text-gray-700 hover:text-gray-900">
+                              Show Stack Trace (Dev Only)
+                            </summary>
+                            <pre className="mt-2 text-xs bg-white bg-opacity-70 p-2 rounded overflow-auto max-h-40 border border-gray-200 text-gray-600">
+                              {error.stack}
+                            </pre>
+                          </details>
+                        )}
                         {isDuplicate && (
-                          <div className="text-xs text-yellow-600 mt-1">
+                          <div className="text-xs text-yellow-600 mt-2">
                             ℹ️ This video resource already exists in the system. No duplicate was created.
                           </div>
                         )}

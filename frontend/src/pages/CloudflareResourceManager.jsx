@@ -113,6 +113,73 @@ function MyStorageManager() {
     }
   };
 
+  // Delete misc file
+  const handleDeleteMiscFile = async (file, e) => {
+    e.stopPropagation(); // Prevent file selection when clicking delete
+    
+    if (!window.confirm(`Are you sure you want to delete "${file.filename}"?`)) {
+      return;
+    }
+
+    setLoadingMisc(true);
+    setError('');
+    
+    try {
+      await api.delete('/cloudflare/misc-files', {
+        data: {
+          filename: file.filename,
+          path: file.path
+        }
+      });
+      setSuccess(`File "${file.filename}" deleted successfully`);
+      // Remove from selected files if it was selected
+      setSelectedMiscFiles(selectedMiscFiles.filter(f => f.path !== file.path));
+      // Reload misc files
+      loadMiscFiles();
+    } catch (err) {
+      console.error('Delete error:', err);
+      setError(err.response?.data?.error || `Failed to delete file "${file.filename}"`);
+    } finally {
+      setLoadingMisc(false);
+    }
+  };
+
+  // Delete selected misc files
+  const handleDeleteSelectedMiscFiles = async () => {
+    if (selectedMiscFiles.length === 0) {
+      setError('Please select at least one file to delete');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete ${selectedMiscFiles.length} file(s)?`)) {
+      return;
+    }
+
+    setLoadingMisc(true);
+    setError('');
+    
+    try {
+      const deletePromises = selectedMiscFiles.map(file =>
+        api.delete('/cloudflare/misc-files', {
+          data: {
+            filename: file.filename,
+            path: file.path
+          }
+        })
+      );
+      
+      await Promise.all(deletePromises);
+      setSuccess(`${selectedMiscFiles.length} file(s) deleted successfully`);
+      setSelectedMiscFiles([]);
+      loadMiscFiles();
+    } catch (err) {
+      console.error('Delete error:', err);
+      setError(err.response?.data?.error || 'Failed to delete files');
+    } finally {
+      setLoadingMisc(false);
+    }
+  };
+
   // Upload functions
   const handleUploadFromMisc = async (testMode = false) => {
     if (selectedMiscFiles.length === 0) {
@@ -213,13 +280,17 @@ function MyStorageManager() {
 
     try {
       const uploadPromises = files.map(async (file) => {
-        const response = await api.post('/cloudflare/upload', {
-          fileName: file.name,
-          fileSize: file.size,
-          fileType: file.type || 'application/octet-stream',
-          sourceType: 'upload',
-          testMode
-        });
+        // Create FormData for multipart/form-data upload
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('fileName', file.name);
+        formData.append('fileSize', file.size.toString());
+        formData.append('fileType', file.type || 'application/octet-stream');
+        formData.append('sourceType', 'upload');
+        formData.append('testMode', testMode.toString());
+        
+        // Don't set Content-Type header - axios will set it automatically with boundary for FormData
+        const response = await api.post('/cloudflare/upload', formData);
         return response.data;
       });
 
@@ -472,12 +543,15 @@ function MyStorageManager() {
       return;
     }
 
-    // Check for resources without Video File URLs
-    const resourcesWithoutUrl = cloudflareResources.filter(r => !r.cloudflare_url || r.cloudflare_url.trim() === '');
-    if (resourcesWithoutUrl.length > 0) {
+    // Check for resources without file paths or URLs
+    const resourcesWithoutPath = cloudflareResources.filter(r => 
+      (!r.cloudflare_key || r.cloudflare_key.trim() === '') && 
+      (!r.cloudflare_url || r.cloudflare_url.trim() === '')
+    );
+    if (resourcesWithoutPath.length > 0) {
       const proceed = window.confirm(
-        `Warning: ${resourcesWithoutUrl.length} resource(s) are missing streaming URLs.\n\n` +
-        `These resources will be skipped in the CSV or will have empty Video File fields.\n\n` +
+        `Warning: ${resourcesWithoutPath.length} resource(s) are missing file paths or URLs.\n\n` +
+        `These resources will be skipped in the CSV.\n\n` +
         `Do you want to proceed anyway?`
       );
       if (!proceed) {
@@ -485,18 +559,7 @@ function MyStorageManager() {
       }
     }
 
-    // Check for mock URLs and warn user
-    const mockUrlCount = cloudflareResources.filter(r => isMockUrl(r.cloudflare_url)).length;
-    if (mockUrlCount > 0) {
-      const proceed = window.confirm(
-        `Warning: ${mockUrlCount} resource(s) have mock/test URLs that cannot be accessed.\n\n` +
-        `These URLs will not work for video streaming. Please update them with real streaming URLs before generating CSV.\n\n` +
-        `Do you want to proceed anyway?`
-      );
-      if (!proceed) {
-        return;
-      }
-    }
+    // Note: All URLs are now localhost URLs, so no need to check for mock URLs
 
     // Get thumbnails - use available thumbnails from thumbnails folder
     // Format should be: thumbnails/filename.png (lowercase, no leading slash)
@@ -572,98 +635,177 @@ function MyStorageManager() {
       return matchedThumbnail.path;
     };
 
-    // Build CSV with SIMPLIFIED format: Name, Video File, Thumbnail (optional fields with defaults)
-    // Minimal required: Name, Video File
-    // Optional: Thumbnail (will use default if not provided)
-    const headers = ['Name', 'Video File', 'Thumbnail'];
+    // Build CSV with NEW format: ID, Title, Link/Path, Thumbnail Images, Tag 1, Tag 2
+    // Required: ID, Title, Link/Path
+    // Optional: Thumbnail Images, Tag 1, Tag 2
+    const headers = ['ID', 'Title', 'Link/Path', 'Thumbnail Images', 'Tag 1', 'Tag 2'];
     
     const rows = cloudflareResources
       .filter(resource => {
-        // Filter out resources without URLs (optional - you can keep them if you want)
-        // For now, we'll include them but they'll fail during upload
+        // Filter out resources without URLs
         return true;
       })
       .map((resource, index) => {
-      // Extract filename without extension for name - REQUIRED
-      const name = resource.file_name.replace(/\.[^/.]+$/, '') || `Video_${index + 1}`;
-      
-      // Video File - Streaming URL - REQUIRED (this is the critical field)
-      // Always use localhost URL - convert from mock URLs or storage path
-      let videoFile = '';
-      
-      // First, try to get localhost URL (convert mock URLs)
-      if (resource.cloudflare_url) {
-        if (isMockUrl(resource.cloudflare_url)) {
-          // Convert mock URL to localhost URL using storage path
-          const storagePath = resource.cloudflare_key || '';
-          const videoIdMatch = storagePath.match(/(?:my-storage|cloudflare)\/([^/]+)_master\./);
-          if (videoIdMatch) {
-            const videoId = videoIdMatch[1];
-            const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
-            videoFile = `${backendUrl}/s/${videoId}`;
-            console.log(`[CSV] Converted mock URL to localhost: ${videoFile}`);
-          }
-        } else if (resource.cloudflare_url.includes('localhost') || resource.cloudflare_url.includes('127.0.0.1')) {
-          // Already a localhost URL
-          videoFile = resource.cloudflare_url;
-        }
-      }
-      
-      // If still no URL, try to construct from storage path
-      if (!videoFile && resource.cloudflare_key) {
+      // Generate unique ID from resource - use videoId from storage path or generate one
+      let videoId = '';
+      if (resource.cloudflare_key) {
         const storagePath = resource.cloudflare_key.replace(/^cloudflare\//, 'my-storage/');
-        const videoIdMatch = storagePath.match(/(?:my-storage|cloudflare)\/([^/]+)_master\./);
+        // Extract videoId from path pattern: my-storage/{videoId}_master.ext or my-storage/{videoId}master_master.ext
+        // Handle both patterns: VID_123_master.mp4 and VID123master_master.mp4
+        const videoIdMatch = storagePath.match(/(?:my-storage|cloudflare)\/([^/]+?)(?:_master\.|master_master\.|_v\d+_master\.|_v\d+master_master\.)/);
         if (videoIdMatch) {
-          const videoId = videoIdMatch[1];
-          const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
-          videoFile = `${backendUrl}/s/${videoId}`;
-          console.log(`[CSV] Constructed localhost URL from storage path: ${videoFile}`);
+          videoId = videoIdMatch[1];
+          // Remove any version suffix if present (e.g., _v02 or v02)
+          videoId = videoId.replace(/_v\d+$/, '').replace(/v\d+$/, '');
+          // Remove trailing "master" if present (from master_master pattern)
+          videoId = videoId.replace(/master$/, '');
         }
       }
       
-      // Ensure videoFile is not empty (required field)
-      if (!videoFile || videoFile.trim() === '') {
-        console.error(`[CSV] Resource ${resource.id} (${resource.file_name}) has no Video File URL - skipping this resource`);
-        return null; // Skip resources without URLs
+      // Also try to extract from streaming URL if available
+      if ((!videoId || videoId.trim() === '') && resource.cloudflare_url) {
+        const urlMatch = resource.cloudflare_url.match(/\/s\/([^/]+)/);
+        if (urlMatch) {
+          const slug = urlMatch[1];
+          // Remove version suffix if present
+          videoId = slug.replace(/_v\d+(_\d+)?$/, '').replace(/_master$/, '');
+        }
       }
       
-      // Thumbnail path - OPTIONAL (use thumbnail from thumbnails folder if available)
-      // Format: thumbnails/filename.png (no leading slash, matches API response)
-      // Try to match thumbnail by resource name, otherwise use default
+      // If no videoId found, generate one from filename or resource ID
+      if (!videoId || videoId.trim() === '') {
+        const fileName = resource.file_name.replace(/\.[^/.]+$/, '');
+        // Remove _master suffix if present in filename, and handle master_master pattern
+        let cleanFileName = fileName.replace(/_master$/, '').replace(/master_master$/, '').replace(/_v\d+$/, '');
+        // Extract numbers from filename to use as base (e.g., VID1764763855691 -> VID_1764763855691)
+        const numberMatch = cleanFileName.match(/(\d+)/);
+        
+        if (numberMatch && cleanFileName.toLowerCase().startsWith('vid')) {
+          // If it's a VID pattern, use the number as the ID
+          const vidNumber = numberMatch[1];
+          videoId = `VID_${vidNumber}`;
+        } else if (cleanFileName && cleanFileName.trim() !== '') {
+          // Use filename as base (sanitized)
+          const sanitized = cleanFileName.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
+          // Add resource ID and random to ensure uniqueness
+          const timestamp = Date.now();
+          const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+          videoId = `${sanitized}_${resource.id || index}_${random}`;
+        } else {
+          // Fallback: use resource ID and timestamp
+          const timestamp = Date.now();
+          const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+          videoId = `VID_${resource.id || index}_${timestamp}_${random}`;
+        }
+        // Ensure ID doesn't exceed 50 characters
+        if (videoId.length > 50) {
+          videoId = videoId.substring(0, 50);
+        }
+      }
+      
+      // Ensure videoId is clean and valid - remove any _master suffix that might have been included
+      videoId = videoId.replace(/_master$/, '').replace(/master$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+      
+      // If videoId looks like it has numbers without underscores (e.g., VID1764763855691), add underscore
+      // This ensures consistency: VID1764763855691 -> VID_1764763855691
+      const vidNumberMatch = videoId.match(/^VID(\d+)/);
+      if (vidNumberMatch) {
+        videoId = `VID_${vidNumberMatch[1]}`;
+      }
+      
+      // Title - Extract from filename or use file name
+      const title = resource.file_name.replace(/\.[^/.]+$/, '') || `Video ${index + 1}`;
+      
+      // Link/Path - Video file path or URL - REQUIRED
+      // For My Storage, use the storage path (my-storage/filename)
+      // Link/Path - Use the ACTUAL cloudflare_key from database (this is the real stored path)
+      let linkPath = '';
+      
+      // CRITICAL: Use cloudflare_key directly from database - this is the actual stored path
+      if (resource.cloudflare_key) {
+        // cloudflare_key already contains the correct path (e.g., "my-storage/VID123_master.mp4" or "my-storage/VID123master_master.mp4")
+        // Just normalize it to ensure it starts with my-storage/
+        linkPath = resource.cloudflare_key.replace(/^cloudflare\//, 'my-storage/');
+        // Ensure it starts with my-storage/ (in case it's just a filename)
+        if (!linkPath.startsWith('my-storage/')) {
+          linkPath = `my-storage/${linkPath}`;
+        }
+        console.log(`[CSV] Row ${index + 1}: Using actual database path: ${linkPath}`);
+      }
+      
+      // Fallback: construct from videoId if cloudflare_key is missing
+      if (!linkPath && videoId) {
+        const fileExtension = resource.file_name.match(/\.[^/.]+$/) || ['.mp4'];
+        linkPath = `my-storage/${videoId}_master${fileExtension[0]}`;
+        console.log(`[CSV] Row ${index + 1}: Constructed path from videoId: ${linkPath}`);
+      }
+      
+      // Last fallback: try to use streaming URL
+      if (!linkPath && resource.cloudflare_url) {
+        if (resource.cloudflare_url.includes('localhost') || resource.cloudflare_url.includes('127.0.0.1')) {
+          // Extract path from localhost URL
+          const urlMatch = resource.cloudflare_url.match(/\/s\/([^/]+)/);
+          if (urlMatch) {
+            const urlVideoId = urlMatch[1];
+            linkPath = `my-storage/${urlVideoId}_master.mp4`;
+          } else {
+            linkPath = resource.cloudflare_url;
+          }
+        } else {
+          linkPath = resource.cloudflare_url;
+        }
+        console.log(`[CSV] Row ${index + 1}: Using path from URL: ${linkPath}`);
+      }
+      
+      // Ensure linkPath is not empty (required field)
+      if (!linkPath || linkPath.trim() === '') {
+        console.error(`[CSV] Resource ${resource.id} (${resource.file_name}) has no Link/Path - skipping this resource`);
+        return null; // Skip resources without paths
+      }
+      
+      // Thumbnail Images - OPTIONAL (use thumbnail from thumbnails folder if available)
+      // Format: thumbnails/filename.png
       let thumbnail = '';
       if (availableThumbnails.length > 0) {
         thumbnail = getThumbnailForResource(resource, index);
-      } else {
-        thumbnail = 'thumbnails/default.png'; // Default thumbnail
       }
+      // Leave empty if no thumbnail found (optional field)
       
-      console.log(`[CSV] Row ${index + 1}: Name="${name}", Video File="${videoFile.substring(0, 50)}...", Thumbnail="${thumbnail}"`);
+      // Tag 1 and Tag 2 - OPTIONAL (empty for now, can be filled manually)
+      const tag1 = '';
+      const tag2 = '';
+      
+      console.log(`[CSV] Row ${index + 1}: ID="${videoId}", Title="${title}", Link/Path="${linkPath.substring(0, 50)}...", Thumbnail="${thumbnail}"`);
       
       return [
-        name,           // Name - video title (REQUIRED)
-        videoFile,      // Video File - Streaming URL (REQUIRED)
-        thumbnail       // Thumbnail path (OPTIONAL - will use default if empty)
+        videoId,        // ID - unique identifier (REQUIRED)
+        title,          // Title - video title (REQUIRED)
+        linkPath,       // Link/Path - file path or URL (REQUIRED)
+        thumbnail,      // Thumbnail Images - thumbnail path (OPTIONAL)
+        tag1,           // Tag 1 - first tag (OPTIONAL)
+        tag2            // Tag 2 - second tag (OPTIONAL)
       ];
     })
-    .filter(row => row !== null); // Remove null entries (resources without URLs)
+    .filter(row => row !== null); // Remove null entries (resources without paths)
 
     // Validate CSV before download - ensure all rows have required fields
     const rowCount = rows.length;
     
     if (rowCount === 0) {
-      setError('No valid resources to generate CSV. Please ensure resources have Video File URLs.');
+      setError('No valid resources to generate CSV. Please ensure resources have file paths or URLs.');
       return;
     }
     
     // Filter out invalid rows before generating CSV
     const validRows = rows.filter(row => {
-      const hasName = row[0] && String(row[0]).trim() !== '';
-      const hasVideoFile = row[1] && String(row[1]).trim() !== '';
-      return hasName && hasVideoFile;
+      const hasId = row[0] && String(row[0]).trim() !== '';
+      const hasTitle = row[1] && String(row[1]).trim() !== '';
+      const hasLinkPath = row[2] && String(row[2]).trim() !== '';
+      return hasId && hasTitle && hasLinkPath;
     });
     
     if (validRows.length === 0) {
-      setError('No valid rows to generate CSV. All resources are missing required fields (Name or Video File).');
+      setError('No valid rows to generate CSV. All resources are missing required fields (ID, Title, or Link/Path).');
       return;
     }
     
@@ -815,6 +957,17 @@ function MyStorageManager() {
                   </span>
                 </h2>
                 <div className="flex gap-2">
+                  {selectedMiscFiles.length > 0 && (
+                    <button
+                      onClick={handleDeleteSelectedMiscFiles}
+                      disabled={loadingMisc}
+                      className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:bg-red-400 disabled:cursor-not-allowed font-medium shadow-sm flex items-center gap-1"
+                      title="Delete selected files"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete ({selectedMiscFiles.length})
+                    </button>
+                  )}
                   <button
                     onClick={handleSelectAllMisc}
                     disabled={miscFiles.length === 0}
@@ -883,9 +1036,19 @@ function MyStorageManager() {
                               </div>
                             </div>
                           </div>
-                          {isSelected && (
-                            <CheckCircle className="w-6 h-6 text-blue-600 flex-shrink-0" />
-                          )}
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <button
+                              onClick={(e) => handleDeleteMiscFile(file, e)}
+                              disabled={loadingMisc}
+                              className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:text-red-300 disabled:cursor-not-allowed"
+                              title="Delete file"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                            {isSelected && (
+                              <CheckCircle className="w-6 h-6 text-blue-600 flex-shrink-0" />
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
