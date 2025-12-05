@@ -605,9 +605,10 @@ export async function bulkUploadFromCSV(req, res) {
 
           // Check if target file path already exists (duplicate detection)
           relativePath = path.join(folderPath, newFileName).replace(/\\/g, '/');
-          streamingUrl = videoService.buildStreamingUrl(relativePath, videoId);
+          // Use temporary streaming URL for duplicate check (will be updated with redirect slug later)
+          const tempStreamingUrl = videoService.buildStreamingUrl(relativePath, videoId);
           
-          const existingVideo = await videoService.findVideoByFileOrUrl(relativePath, streamingUrl);
+          const existingVideo = await videoService.findVideoByFileOrUrl(relativePath, tempStreamingUrl);
           if (existingVideo) {
             console.log(`[Row ${rowNumber}] ⚠ Duplicate video detected! Video with path "${relativePath}" already exists (ID: ${existingVideo.video_id}). Skipping duplicate upload.`);
             results.failed++;
@@ -671,6 +672,17 @@ export async function bulkUploadFromCSV(req, res) {
         if (!shortSlug || shortSlug.trim() === '') {
           console.error(`[Row ${rowNumber}] CRITICAL: redirect_slug is empty! Using videoId as fallback.`);
           shortSlug = videoId;
+        }
+
+        // Build streaming URL using localhost with redirect slug (for short URLs like /s/:slug)
+        // This ensures videos are always streamed from localhost instead of Cloudflare URLs
+        if (!isRemoteFile) {
+          // For local files, use the redirect slug for streaming URL
+          streamingUrl = videoService.buildStreamingUrl(relativePath, videoId, shortSlug);
+        } else {
+          // For remote files (Cloudflare URLs), still use localhost streaming endpoint
+          // This ensures consistent localhost URLs for all videos
+          streamingUrl = videoService.buildStreamingUrl(null, videoId, shortSlug);
         }
 
         // Generate QR code with short URL

@@ -7,23 +7,23 @@ const router = express.Router();
 // Get misc files (for left side)
 router.get('/misc-files', authenticateToken, cloudflareController.getMiscFiles);
 
-// Get all Cloudflare resources
-router.get('/resources', authenticateToken, cloudflareController.getCloudflareResources);
+// Get all My Storage resources
+router.get('/resources', authenticateToken, cloudflareController.getMyStorageResources);
 
 // Get videos with mock URLs
 router.get('/videos-with-mock-urls', authenticateToken, cloudflareController.getVideosWithMockUrls);
 
-// Get videos by Cloudflare URL
-router.get('/videos-by-url', authenticateToken, cloudflareController.getVideosByCloudflareUrl);
+// Get videos by streaming URL
+router.get('/videos-by-url', authenticateToken, cloudflareController.getVideosByStreamingUrl);
 
-// Upload to Cloudflare
-router.post('/upload', authenticateToken, cloudflareController.uploadToCloudflare);
+// Upload to My Storage (my-storage folder)
+router.post('/upload', authenticateToken, cloudflareController.uploadToMyStorage);
 
-// Update Cloudflare resource
-router.put('/resources/:id', authenticateToken, cloudflareController.updateCloudflareResource);
+// Update My Storage resource
+router.put('/resources/:id', authenticateToken, cloudflareController.updateMyStorageResource);
 
-// Delete Cloudflare resource
-router.delete('/resources/:id', authenticateToken, cloudflareController.deleteCloudflareResource);
+// Delete My Storage resource
+router.delete('/resources/:id', authenticateToken, cloudflareController.deleteMyStorageResource);
 
 export default router;
 

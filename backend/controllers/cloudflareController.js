@@ -1,24 +1,65 @@
 import pool from '../config/database.js';
 import config from '../config/config.js';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { generateVideoId } from '../utils/videoIdGenerator.js';
+import { ensureDirectoryExists, getFileSize } from '../utils/fileUtils.js';
+import * as videoService from '../services/videoService.js';
+import * as redirectService from '../services/redirectService.js';
+import * as qrCodeService from '../services/qrCodeService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * Get all Cloudflare resources
+ * Get all My Storage resources
+ * Automatically converts mock Cloudflare URLs to localhost streaming URLs
  */
-export async function getCloudflareResources(req, res) {
+export async function getMyStorageResources(req, res) {
   try {
     const [resources] = await pool.execute(
       'SELECT * FROM cloudflare_resources ORDER BY created_at DESC'
     );
-    res.json({ resources });
+    
+    // Convert mock URLs to localhost URLs
+    const convertedResources = resources.map(resource => {
+      const mockUrlPatterns = [
+        'your-account.r2.cloudflarestorage.com',
+        'mock-cloudflare.example.com',
+        'test.cloudflare'
+      ];
+      
+      const isMockUrl = resource.cloudflare_url && mockUrlPatterns.some(pattern => 
+        resource.cloudflare_url.includes(pattern)
+      );
+      
+      if (isMockUrl && resource.cloudflare_key) {
+        // Extract video ID from storage path
+        // Format: my-storage/{videoId}_master.mp4 or cloudflare/.../{videoId}_master.mp4
+        const storagePath = resource.cloudflare_key.replace(/^cloudflare\//, 'my-storage/');
+        const videoIdMatch = storagePath.match(/(?:my-storage|cloudflare)\/([^/]+)_master\./);
+        
+        if (videoIdMatch) {
+          const videoId = videoIdMatch[1];
+          const localhostUrl = `${config.urls.base}/s/${videoId}`;
+          return {
+            ...resource,
+            cloudflare_url: localhostUrl,
+            original_url: resource.cloudflare_url, // Keep original for reference
+            converted: true
+          };
+        }
+      }
+      
+      return resource;
+    });
+    
+    res.json({ resources: convertedResources });
   } catch (error) {
-    console.error('Error getting Cloudflare resources:', error);
-    res.status(500).json({ error: 'Failed to get Cloudflare resources', message: error.message });
+    console.error('Error getting My Storage resources:', error);
+    res.status(500).json({ error: 'Failed to get My Storage resources', message: error.message });
   }
 }
 
@@ -27,18 +68,88 @@ export async function getCloudflareResources(req, res) {
  */
 export async function getMiscFiles(req, res) {
   try {
+    // Use same path resolution as uploadToMyStorage
     const backendDir = path.dirname(__dirname);
-    const miscPath = path.resolve(backendDir, '../video-storage/misc');
+    const basePath = path.dirname(backendDir);
+    let uploadPath = path.isAbsolute(config.upload.uploadPath) 
+      ? config.upload.uploadPath 
+      : path.resolve(basePath, config.upload.uploadPath);
     
-    // Check if directory exists
+    // Try multiple possible paths for misc folder (prioritize the one with files)
+    const possibleMiscPaths = [
+      path.join(basePath, 'video-storage', 'misc'), // First: basePath/video-storage/misc (where files actually are)
+      path.join(uploadPath, 'misc'), // Second: uploadPath/misc (default)
+      path.join(basePath, 'misc'), // Third: basePath/misc (fallback)
+    ];
+    
+    // Find the first path that exists and has files
+    let miscPath = null;
+    let maxFiles = 0;
+    for (const tryPath of possibleMiscPaths) {
+      if (fsSync.existsSync(tryPath)) {
+        try {
+          const files = await fs.readdir(tryPath);
+          // Count actual files (not directories)
+          const fileCount = files.filter(f => {
+            try {
+              return fsSync.statSync(path.join(tryPath, f)).isFile();
+            } catch {
+              return false;
+            }
+          }).length;
+          
+          if (fileCount > maxFiles) {
+            miscPath = tryPath;
+            maxFiles = fileCount;
+            console.log(`✓ Found misc folder with ${fileCount} files at: ${miscPath}`);
+            // Update uploadPath to match
+            uploadPath = path.dirname(miscPath);
+          }
+        } catch (err) {
+          console.warn(`Could not read directory: ${tryPath}`, err.message);
+        }
+      }
+    }
+    
+    // If no misc folder found, use the default
+    if (!miscPath) {
+      miscPath = possibleMiscPaths[1]; // Use default
+      console.log(`Using default misc path: ${miscPath}`);
+    } else {
+      console.log(`Using misc folder with ${maxFiles} files: ${miscPath}`);
+    }
+    
+    console.log('getMiscFiles path resolution:', {
+      backendDir,
+      basePath,
+      configUploadPath: config.upload.uploadPath,
+      resolvedUploadPath: uploadPath,
+      resolvedMiscPath: miscPath,
+      miscPathExists: fsSync.existsSync(miscPath)
+    });
+    
+    // Check if directory exists, create if it doesn't
     try {
       await fs.access(miscPath);
     } catch {
-      return res.json({ files: [] });
+      console.warn(`Misc folder does not exist at: ${miscPath}, creating it...`);
+      try {
+        await ensureDirectoryExists(miscPath);
+        console.log(`✓ Misc folder created at: ${miscPath}`);
+        return res.json({ files: [], message: 'Misc folder was empty or did not exist. It has been created. Please add video files to this folder.' });
+      } catch (createError) {
+        console.error('Error creating misc folder:', createError);
+        return res.json({ 
+          files: [], 
+          error: 'Misc folder does not exist and could not be created',
+          message: `Please create the misc folder at: ${miscPath}`
+        });
+      }
     }
     
     // Read directory
     const files = await fs.readdir(miscPath);
+    console.log(`getMiscFiles: Found ${files.length} items in misc folder:`, files.slice(0, 10));
     
     // Get file stats
     const fileList = await Promise.all(
@@ -66,65 +177,730 @@ export async function getMiscFiles(req, res) {
     );
     
     const validFiles = fileList.filter(file => file !== null);
+    console.log(`getMiscFiles: Returning ${validFiles.length} valid files`);
     res.json({ files: validFiles });
   } catch (error) {
     console.error('Error getting misc files:', error);
-    res.status(500).json({ error: 'Failed to get misc files', message: error.message });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to get misc files', 
+      message: error.message,
+      debug: {
+        backendDir: path.dirname(__dirname),
+        basePath: path.dirname(path.dirname(__dirname)),
+        configUploadPath: config.upload.uploadPath,
+        resolvedUploadPath: path.isAbsolute(config.upload.uploadPath) 
+          ? config.upload.uploadPath 
+          : path.resolve(path.dirname(path.dirname(__dirname)), config.upload.uploadPath),
+        resolvedMiscPath: path.join(
+          path.isAbsolute(config.upload.uploadPath) 
+            ? config.upload.uploadPath 
+            : path.resolve(path.dirname(path.dirname(__dirname)), config.upload.uploadPath),
+          'misc'
+        )
+      }
+    });
   }
 }
 
 /**
- * Upload file to Cloudflare (mock/test mode)
+ * Upload file to local storage (my-storage folder) and create video entry with localhost URL
+ * Stores all videos in my-storage folder for localhost streaming
  */
-export async function uploadToCloudflare(req, res) {
+export async function uploadToMyStorage(req, res) {
+  console.log('\n========== UPLOAD REQUEST ==========');
+  console.log('uploadToMyStorage called with:', {
+    body: req.body,
+    method: req.method,
+    path: req.path,
+    url: req.url
+  });
+  console.log('====================================\n');
+  
+  // Initialize variables to prevent undefined errors
+  let sourceFilePath = null;
+  let targetFilePath = null;
+  let videoId = null;
+  let nameWithoutExt = null;
+  let relativePath = null;
+  let shortSlug = null;
+  let shortUrl = null;
+  let streamingUrl = null;
+  let thumbnailUrl = null;
+  let actualFileSize = 0;
+  let miscPath = null;
+  let fileNameOnly = null;
+  let possiblePaths = [];
+  
   try {
     const { fileName, fileSize, fileType, sourceType, sourcePath, testMode } = req.body;
     
+    // Validate required fields
     if (!fileName) {
-      return res.status(400).json({ error: 'File name is required' });
+      return res.status(400).json({ 
+        error: 'Missing required field: fileName',
+        message: 'File name is required for upload'
+      });
     }
     
-    // Generate mock Cloudflare data
-    const cloudflareKey = `cloudflare/${Date.now()}_${fileName}`;
-    const cloudflareUrl = testMode 
-      ? `https://mock-cloudflare.example.com/${cloudflareKey}`
-      : `https://your-account.r2.cloudflarestorage.com/${cloudflareKey}`;
+    // Validate sourceType and sourcePath for misc uploads
+    if (sourceType === 'misc' && !sourcePath) {
+      return res.status(400).json({ 
+        error: 'Missing required field: sourcePath',
+        message: 'sourcePath is required when sourceType is "misc"'
+      });
+    }
     
-    // In real implementation, upload file to Cloudflare here
-    // For now, we'll just store the metadata
+    // Resolve paths
+    const backendDir = path.dirname(__dirname);
+    const basePath = path.dirname(backendDir);
+    let uploadPath = path.isAbsolute(config.upload.uploadPath) 
+      ? config.upload.uploadPath 
+      : path.resolve(basePath, config.upload.uploadPath);
     
-    // Insert into database
-    const [result] = await pool.execute(
-      `INSERT INTO cloudflare_resources 
-       (file_name, original_file_name, file_size, file_type, cloudflare_url, cloudflare_key, storage_type, source_type, source_path, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+    // Try multiple possible paths for misc folder (prioritize the one with files)
+    const possibleMiscPaths = [
+      path.join(basePath, 'video-storage', 'misc'), // First: basePath/video-storage/misc (where files actually are)
+      path.join(uploadPath, 'misc'), // Second: uploadPath/misc (default)
+      path.join(basePath, 'misc'), // Third: basePath/misc (fallback)
+    ];
+    
+    // Find the path that exists and has the most files
+    let foundMiscPath = null;
+    let maxFiles = 0;
+    for (const tryPath of possibleMiscPaths) {
+      if (fsSync.existsSync(tryPath)) {
+        try {
+          const files = fsSync.readdirSync(tryPath);
+          // Count actual files (not directories)
+          const fileCount = files.filter(f => {
+            try {
+              return fsSync.statSync(path.join(tryPath, f)).isFile();
+            } catch {
+              return false;
+            }
+          }).length;
+          
+          if (fileCount > maxFiles) {
+            foundMiscPath = tryPath;
+            maxFiles = fileCount;
+            console.log(`✓ Found misc folder with ${fileCount} files at: ${foundMiscPath}`);
+            // Update uploadPath to match
+            uploadPath = path.dirname(foundMiscPath);
+          }
+        } catch (err) {
+          console.warn(`Could not read directory: ${tryPath}`, err.message);
+        }
+      }
+    }
+    
+    // If no misc folder found, use the default
+    if (!foundMiscPath) {
+      foundMiscPath = possibleMiscPaths[1]; // Use default
+      console.log(`Using default misc path: ${foundMiscPath}`);
+    } else {
+      console.log(`Using misc folder with ${maxFiles} files: ${foundMiscPath}`);
+    }
+    
+    console.log('Upload path resolution:', {
+      backendDir,
+      basePath,
+      configUploadPath: config.upload.uploadPath,
+      resolvedUploadPath: uploadPath,
+      uploadPathExists: fsSync.existsSync(uploadPath),
+      foundMiscPath,
+      foundMiscPathExists: foundMiscPath ? fsSync.existsSync(foundMiscPath) : false,
+      possiblePaths: possibleMiscPaths.map(p => ({
+        path: p,
+        exists: fsSync.existsSync(p)
+      }))
+    });
+    
+    // Create my-storage folder if it doesn't exist
+    const myStoragePath = path.join(uploadPath, 'my-storage');
+    await ensureDirectoryExists(myStoragePath);
+    console.log(`My Storage folder ensured at: ${myStoragePath}`);
+    
+    // Determine source file path
+    
+    if (sourceType === 'misc' && sourcePath) {
+      // File is in misc folder - use the found path or default
+      miscPath = foundMiscPath || path.join(uploadPath, 'misc');
+      
+      // Create misc folder if it doesn't exist
+      if (!fsSync.existsSync(miscPath)) {
+        console.warn(`Misc folder not found at ${miscPath}, creating it...`);
+        await ensureDirectoryExists(miscPath);
+        console.log(`✓ Misc folder created at: ${miscPath}`);
+      }
+      
+      // sourcePath from frontend is like "misc/VID_1764744941896_master.mp4"
+      // But actual file might be "VID_1764744941896.mp4" or "VID_1764744941896_master.mp4"
+      fileNameOnly = path.basename(sourcePath); // Get just the filename part
+      
+      console.log('File path resolution:', {
+        sourcePath,
         fileName,
+        fileNameOnly,
+        miscPath,
+        miscPathExists: fsSync.existsSync(miscPath)
+      });
+      
+      // Read files from misc folder if it exists
+      let miscFiles = [];
+      try {
+        if (fsSync.existsSync(miscPath)) {
+          const allItems = await fs.readdir(miscPath);
+          // Filter to only files (not directories) and get their actual names
+          for (const item of allItems) {
+            try {
+              const itemPath = path.join(miscPath, item);
+              const stats = await fs.stat(itemPath);
+              if (stats.isFile()) {
+                miscFiles.push(item);
+              }
+            } catch (err) {
+              // Skip items we can't stat
+              console.warn(`Could not stat item: ${item}`, err.message);
+            }
+          }
+          console.log(`Found ${miscFiles.length} files in misc folder:`, miscFiles.slice(0, 10));
+        } else {
+          console.warn(`Misc folder does not exist at: ${miscPath}`);
+        }
+      } catch (err) {
+        console.error('Error reading misc folder:', err);
+      }
+      
+      // Try multiple path variations in order of likelihood
+      possiblePaths = [
+        path.join(miscPath, fileNameOnly), // Most likely: just filename in misc folder
+        path.join(uploadPath, sourcePath), // Full path: uploadPath/misc/filename
+        path.join(miscPath, fileName) // Use fileName directly
+      ];
+      
+      // Also try without _master suffix if present
+      if (fileNameOnly.includes('_master')) {
+        const nameWithoutMaster = fileNameOnly.replace(/_master\./, '.');
+        possiblePaths.push(path.join(miscPath, nameWithoutMaster));
+      }
+      if (fileName.includes('_master')) {
+        const nameWithoutMaster = fileName.replace(/_master\./, '.');
+        possiblePaths.push(path.join(miscPath, nameWithoutMaster));
+      }
+      
+      // Try exact match from actual files list (case-insensitive, handle spaces)
+      if (miscFiles.length > 0) {
+        const exactMatch = miscFiles.find(f => {
+          const fLower = f.toLowerCase().trim();
+          const fileNameLower = fileName.toLowerCase().trim();
+          const fileNameOnlyLower = fileNameOnly.toLowerCase().trim();
+          return fLower === fileNameOnlyLower || fLower === fileNameLower;
+        });
+        if (exactMatch) {
+          possiblePaths.unshift(path.join(miscPath, exactMatch)); // Add to front of list
+          console.log(`Found exact match in file list: ${exactMatch}`);
+        }
+      }
+      
+      // Try to find existing file
+      for (const tryPath of possiblePaths) {
+        try {
+          if (fsSync.existsSync(tryPath)) {
+            sourceFilePath = tryPath;
+            console.log(`✓ Found file at: ${sourceFilePath}`);
+            break;
+          }
+        } catch (err) {
+          console.warn(`Error checking path: ${tryPath}`, err.message);
+        }
+      }
+      
+      // If still not found, search by VID number using already-read file list
+      if (!sourceFilePath && miscFiles.length > 0) {
+        const vidMatch = fileName.match(/VID_(\d+)/) || fileNameOnly.match(/VID_(\d+)/);
+        if (vidMatch) {
+          const matchingFile = miscFiles.find(f => f.includes(`VID_${vidMatch[1]}`));
+          if (matchingFile) {
+            sourceFilePath = path.join(miscPath, matchingFile);
+            console.log(`✓ Found file by VID number: ${sourceFilePath}`);
+          }
+        }
+      }
+      
+      // Also try partial name matching (for files like "SS_G1_U1_L1_My Home.mp4")
+      if (!sourceFilePath && miscFiles.length > 0) {
+        // Try to find file by partial name match - improved for files with spaces
+        const nameBase = fileName.replace(/\.[^/.]+$/, '').toLowerCase();
+        const nameParts = nameBase.split(/[_\s-]+/).filter(p => p.length > 1);
+        
+        if (nameParts.length > 0) {
+          // Try exact match first (handles spaces)
+          let partialMatch = miscFiles.find(f => {
+            const fBase = f.replace(/\.[^/.]+$/, '').toLowerCase();
+            return fBase === nameBase || fBase.includes(nameBase) || nameBase.includes(fBase);
+          });
+          
+          // If no exact match, try partial matching
+          if (!partialMatch) {
+            partialMatch = miscFiles.find(f => {
+              const fLower = f.toLowerCase();
+              // Check if all significant parts are present
+              return nameParts.every(part => fLower.includes(part)) || 
+                     nameParts.some(part => fLower.includes(part) && part.length > 3);
+            });
+          }
+          
+          if (partialMatch) {
+            sourceFilePath = path.join(miscPath, partialMatch);
+            console.log(`✓ Found file by partial name match: ${sourceFilePath}`);
+          }
+        }
+      }
+    } else {
+      // File was uploaded from PC - need to handle file upload differently
+      return res.status(400).json({ 
+        error: 'File upload from PC requires multipart/form-data. Please use the video upload endpoint instead.' 
+      });
+    }
+    
+    // Final check - if still not found, return error with helpful info
+    if (!sourceFilePath || !fsSync.existsSync(sourceFilePath)) {
+      // Ensure miscPath is set if not already
+      if (!miscPath) {
+        miscPath = path.join(uploadPath, 'misc');
+      }
+      
+      // Read files from misc folder
+      let miscFiles = [];
+      let readError = null;
+      try {
+        if (fsSync.existsSync(miscPath)) {
+          miscFiles = await fs.readdir(miscPath);
+          // Filter out directories, only get files
+          const fileStats = await Promise.all(
+            miscFiles.map(async (f) => {
+              try {
+                const filePath = path.join(miscPath, f);
+                const stats = await fs.stat(filePath);
+                return stats.isFile() ? f : null;
+              } catch {
+                return null;
+              }
+            })
+          );
+          miscFiles = fileStats.filter(f => f !== null);
+          console.log(`Found ${miscFiles.length} files in misc folder:`, miscFiles.slice(0, 10));
+        } else {
+          readError = `Misc folder does not exist at: ${miscPath}`;
+        }
+      } catch (err) {
+        console.error('Error reading misc folder:', err);
+        readError = err.message;
+      }
+      
+      // Get fileNameOnly safely - use the one we already have or get from sourcePath
+      if (!fileNameOnly) {
+        fileNameOnly = sourcePath ? path.basename(sourcePath) : fileName;
+      }
+      
+      // Try to find similar files
+      const vidMatch = fileName.match(/VID_(\d+)/) || (fileNameOnly ? fileNameOnly.match(/VID_(\d+)/) : null);
+      const similarFiles = vidMatch ? miscFiles.filter(f => f.includes(`VID_${vidMatch[1]}`)) : [];
+      
+      // Also try case-insensitive partial matches
+      const partialMatches = miscFiles.filter(f => {
+        const fLower = f.toLowerCase();
+        const nameLower = fileName.toLowerCase();
+        const nameOnlyLower = fileNameOnly ? fileNameOnly.toLowerCase() : '';
+        return fLower.includes(nameLower) || (nameOnlyLower && fLower.includes(nameOnlyLower)) ||
+               nameLower.includes(fLower) || (nameOnlyLower && nameOnlyLower.includes(fLower));
+      });
+      
+      // Build helpful error message
+      let errorMessage = `Could not find file "${fileName}" in misc folder.`;
+      if (miscFiles.length === 0) {
+        errorMessage += ` The misc folder is empty. Please add the file "${fileName}" to the misc folder at: ${miscPath}`;
+      } else {
+        errorMessage += ` Found ${miscFiles.length} file(s) in misc folder, but none match.`;
+        if (similarFiles.length > 0) {
+          errorMessage += ` Found similar files by VID: ${similarFiles.join(', ')}`;
+        } else if (partialMatches.length > 0) {
+          errorMessage += ` Found partial matches: ${partialMatches.join(', ')}`;
+        } else {
+          errorMessage += ` Available files: ${miscFiles.slice(0, 10).join(', ')}${miscFiles.length > 10 ? '...' : ''}`;
+        }
+      }
+      
+      console.error('File not found after all attempts:', {
         fileName,
-        fileSize || 0,
-        fileType || 'application/octet-stream',
-        cloudflareUrl,
-        cloudflareKey,
-        'r2',
-        sourceType || 'upload',
-        sourcePath || null,
-        'completed'
-      ]
-    );
+        fileNameOnly,
+        sourcePath,
+        triedPaths: possiblePaths || [],
+        miscFilesCount: miscFiles.length,
+        miscFiles: miscFiles.slice(0, 20),
+        similarFiles,
+        partialMatches,
+        readError
+      });
+      
+      return res.status(400).json({ 
+        error: `Source file not found: ${sourcePath || fileName}`,
+        message: errorMessage,
+        debug: {
+          triedPaths: possiblePaths || [],
+          fileName,
+          fileNameOnly: fileNameOnly || 'N/A',
+          sourcePath,
+          miscPath,
+          miscPathExists: fsSync.existsSync(miscPath),
+          miscFiles: miscFiles.slice(0, 20), // Show first 20 files for debugging
+          miscFilesCount: miscFiles.length,
+          similarFiles: similarFiles.slice(0, 5),
+          partialMatches: partialMatches.slice(0, 5),
+          readError: readError || null
+        }
+      });
+    }
+    
+    console.log(`✓ Using source file path: ${sourceFilePath}`);
+    
+    // Generate video ID from filename (remove extension)
+    nameWithoutExt = path.basename(fileName, path.extname(fileName));
+    videoId = generateVideoId({ title: nameWithoutExt });
+    
+    // Check if video already exists, if so, append timestamp to make it unique
+    let existingVideo = await videoService.getVideoByVideoId(videoId, true);
+    if (existingVideo) {
+      console.warn(`Video ID "${videoId}" already exists, generating unique ID...`);
+      videoId = `${videoId}_${Date.now()}`;
+      // Check again with new ID
+      existingVideo = await videoService.getVideoByVideoId(videoId, true);
+      if (existingVideo) {
+        return res.status(400).json({ 
+          error: `Unable to generate unique video ID. Please rename the file.` 
+        });
+      }
+    }
+    
+    console.log(`Using video ID: ${videoId}`);
+    
+    // Copy file to my-storage folder
+    const fileExtension = path.extname(fileName);
+    const targetFileName = `${videoId}_master${fileExtension}`;
+    targetFilePath = path.join(myStoragePath, targetFileName);
+    relativePath = `my-storage/${targetFileName}`;
+    
+    // Verify source file exists before copying
+    if (!fsSync.existsSync(sourceFilePath)) {
+      return res.status(404).json({ 
+        error: 'Source file not found',
+        message: `The file "${sourceFilePath}" does not exist. Please check the file path.`
+      });
+    }
+    
+    // Copy file to my-storage folder
+    try {
+      await fs.copyFile(sourceFilePath, targetFilePath);
+      console.log(`✓ File copied to my-storage: ${targetFilePath}`);
+    } catch (copyError) {
+      console.error('Error copying file:', copyError);
+      return res.status(500).json({ 
+        error: 'Failed to copy file to my-storage folder',
+        message: copyError.message,
+        sourcePath: sourceFilePath,
+        targetPath: targetFilePath
+      });
+    }
+    
+    // Get actual file size
+    actualFileSize = await getFileSize(targetFilePath);
+    
+    // Get default thumbnail from thumbnails folder
+    let thumbnailUrl = null;
+    try {
+      // Read thumbnails directory directly
+      const thumbnailsDir = path.join(uploadPath, 'thumbnails');
+      if (fsSync.existsSync(thumbnailsDir)) {
+        const thumbnailFiles = await fs.readdir(thumbnailsDir);
+        const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+        const thumbnails = thumbnailFiles.filter(file => {
+          const ext = path.extname(file).toLowerCase();
+          return imageExtensions.includes(ext);
+        });
+        
+        if (thumbnails.length > 0) {
+          // Use thumbnail based on video ID hash to cycle through available thumbnails
+          const thumbnailIndex = Math.abs(videoId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)) % thumbnails.length;
+          const selectedThumbnail = thumbnails[thumbnailIndex];
+          thumbnailUrl = `thumbnails/${selectedThumbnail}`;
+          console.log(`Using default thumbnail: ${thumbnailUrl}`);
+        } else {
+          // Use default thumbnail path if no thumbnails available
+          thumbnailUrl = 'thumbnails/default.png';
+          console.log('No thumbnails found, using default path');
+        }
+      } else {
+        thumbnailUrl = 'thumbnails/default.png';
+        console.log('Thumbnails directory not found, using default path');
+      }
+    } catch (thumbError) {
+      console.warn('Error getting thumbnails, using default:', thumbError.message);
+      thumbnailUrl = 'thumbnails/default.png';
+    }
+    
+    // Create redirect with short URL
+    let redirectResult;
+    let shortUrl;
+    let shortSlug;
+    try {
+      let redirectSlug = videoId;
+      const redirectUrl = `${config.urls.frontend}/stream/${videoId}`;
+      
+      // Check if redirect_slug already exists in videos table
+      let existingVideoWithSlug = await videoService.getVideoByRedirectSlug(redirectSlug, true);
+      if (existingVideoWithSlug) {
+        console.warn(`Redirect slug "${redirectSlug}" already used by another video, generating unique slug...`);
+        redirectSlug = `${videoId}_${Date.now()}`;
+        // Check again with new slug
+        existingVideoWithSlug = await videoService.getVideoByRedirectSlug(redirectSlug, true);
+        if (existingVideoWithSlug) {
+          // If still exists, try one more time with more randomness
+          redirectSlug = `${videoId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        }
+      }
+      
+      // Try to create redirect, if it fails due to duplicate, try with unique slug
+      try {
+        redirectResult = await redirectService.createRedirect(redirectSlug, redirectUrl, true);
+        shortUrl = redirectResult.shortUrl || redirectUrl;
+        shortSlug = redirectResult.shortSlug || redirectSlug;
+        console.log(`✓ Redirect created: ${shortUrl}`);
+      } catch (redirectError) {
+        // If redirect slug already exists, try with unique slug
+        if (redirectError.code === 'ER_DUP_ENTRY' || redirectError.message?.includes('Duplicate entry')) {
+          console.warn(`Redirect slug "${redirectSlug}" already exists in redirects table, generating unique slug...`);
+          redirectSlug = `${videoId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          redirectResult = await redirectService.createRedirect(redirectSlug, redirectUrl, true);
+          shortUrl = redirectResult.shortUrl || redirectUrl;
+          shortSlug = redirectResult.shortSlug || redirectSlug;
+          console.log(`✓ Redirect created with unique slug: ${shortUrl}`);
+        } else {
+          throw redirectError; // Re-throw if it's a different error
+        }
+      }
+    } catch (redirectError) {
+      console.error('Error creating redirect:', redirectError);
+      // Use videoId as fallback
+      shortUrl = `${config.urls.base}/${videoId}`;
+      shortSlug = videoId;
+      console.warn('Using videoId as redirect slug due to error');
+    }
+    
+    // Build streaming URL using localhost with redirect slug
+    streamingUrl = videoService.buildStreamingUrl(relativePath, videoId, shortSlug);
+    console.log(`✓ Streaming URL: ${streamingUrl}`);
+    
+    // Generate QR code
+    let qrUrl = null;
+    try {
+      qrUrl = await qrCodeService.generateQRCode(videoId, shortUrl);
+      console.log(`✓ QR code generated: ${qrUrl}`);
+    } catch (qrError) {
+      console.warn('Failed to generate QR code:', qrError.message);
+      // Continue without QR code - not critical
+    }
+    
+    // Create video entry with all required fields
+    const videoData = {
+      videoId,
+      partnerId: null, // Not required
+      title: nameWithoutExt,
+      course: null, // Optional
+      grade: null, // Optional
+      lesson: null, // Optional
+      module: null, // Optional
+      activity: null, // Optional
+      topic: nameWithoutExt, // Use title as topic
+      description: `Video: ${nameWithoutExt}`, // Auto-generated description
+      language: 'en', // Default language
+      filePath: relativePath,
+      streamingUrl,
+      qrUrl,
+      thumbnailUrl,
+      redirectSlug: shortSlug,
+      duration: 0, // Will be updated later if needed
+      size: actualFileSize,
+      version: 1,
+      status: 'active'
+    };
+    
+    let videoDbId;
+    try {
+      videoDbId = await videoService.createVideo(videoData);
+      console.log(`✓ Video created with ID: ${videoId}, DB ID: ${videoDbId}`);
+    } catch (videoError) {
+      console.error('========== VIDEO CREATION ERROR ==========');
+      console.error('Error creating video entry:', videoError);
+      console.error('Error code:', videoError.code);
+      console.error('Error message:', videoError.message);
+      console.error('SQL State:', videoError.sqlState);
+      console.error('SQL Message:', videoError.sqlMessage);
+      console.error('Video data:', JSON.stringify(videoData, null, 2));
+      console.error('==========================================');
+      
+      // If redirect_slug is duplicate, try with a new unique slug
+      if (videoError.code === 'ER_DUP_ENTRY' && videoError.message?.includes('redirect_slug')) {
+        console.warn('Redirect slug already exists, trying with unique slug...');
+        videoData.redirectSlug = `${shortSlug}_${Date.now()}`;
+        try {
+          videoDbId = await videoService.createVideo(videoData);
+          console.log(`✓ Video created with unique redirect slug: ${videoData.redirectSlug}`);
+          // Update shortSlug to match
+          shortSlug = videoData.redirectSlug;
+        } catch (retryError) {
+          console.error('Retry also failed:', retryError);
+          // Try to clean up the copied file
+          try {
+            if (fsSync.existsSync(targetFilePath)) {
+              await fs.unlink(targetFilePath);
+              console.log('Cleaned up copied file due to error');
+            }
+          } catch (cleanupError) {
+            console.error('Error cleaning up file:', cleanupError);
+          }
+          throw retryError;
+        }
+      } else {
+        // Try to clean up the copied file
+        try {
+          if (fsSync.existsSync(targetFilePath)) {
+            await fs.unlink(targetFilePath);
+            console.log('Cleaned up copied file due to error');
+          }
+        } catch (cleanupError) {
+          console.error('Error cleaning up file:', cleanupError);
+        }
+        throw videoError; // Re-throw to be caught by outer catch
+      }
+    }
+    
+    // Also create entry in cloudflare_resources table for tracking (database schema uses cloudflare_* names)
+    // But we store localhost URLs and my-storage paths
+    let resourceResult;
+    try {
+      const localhostUrl = streamingUrl;
+      const [result] = await pool.execute(
+        `INSERT INTO cloudflare_resources 
+         (file_name, original_file_name, file_size, file_type, cloudflare_url, cloudflare_key, storage_type, source_type, source_path, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          fileName,
+          fileName,
+          actualFileSize,
+          fileType || 'application/octet-stream',
+          localhostUrl,
+          relativePath, // This is the my-storage path
+          'my-storage',
+          sourceType || 'upload',
+          sourcePath || null,
+          'completed'
+        ]
+      );
+      resourceResult = result;
+      console.log(`✓ Resource entry created with ID: ${result.insertId}`);
+    } catch (resourceError) {
+      console.error('Error creating resource entry:', resourceError);
+      console.error('Resource error details:', {
+        message: resourceError.message,
+        code: resourceError.code,
+        sqlState: resourceError.sqlState,
+        sqlMessage: resourceError.sqlMessage
+      });
+      // Don't fail the whole upload if resource entry fails - video is already created
+      resourceResult = { insertId: null };
+    }
     
     res.json({
       success: true,
+      video: {
+        id: videoDbId,
+        video_id: videoId,
+        title: nameWithoutExt,
+        streaming_url: streamingUrl,
+        short_url: shortUrl,
+        thumbnail_url: thumbnailUrl
+      },
       resource: {
-        id: result.insertId,
+        id: resourceResult.insertId,
         file_name: fileName,
-        cloudflare_url: cloudflareUrl,
-        cloudflare_key: cloudflareKey,
-        test_mode: testMode || false
+        streaming_url: streamingUrl,
+        storage_path: relativePath,
+        storage_type: 'my-storage'
       }
     });
   } catch (error) {
-    console.error('Error uploading to Cloudflare:', error);
-    res.status(500).json({ error: 'Failed to upload to Cloudflare', message: error.message });
+    console.error('\n========== UPLOAD ERROR ==========');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Error code:', error.code);
+    console.error('Error name:', error.name);
+    if (error.sqlMessage) {
+      console.error('SQL Message:', error.sqlMessage);
+      console.error('SQL State:', error.sqlState);
+      console.error('SQL Code:', error.sqlCode);
+    }
+    console.error('Error stack:', error.stack);
+    console.error('Request body:', JSON.stringify(req.body, null, 2));
+    console.error('Variables at error:', {
+      sourceFilePath: sourceFilePath || 'null',
+      targetFilePath: targetFilePath || 'null',
+      videoId: videoId || 'null',
+      nameWithoutExt: nameWithoutExt || 'null',
+      relativePath: relativePath || 'null',
+      shortSlug: shortSlug || 'null',
+      streamingUrl: streamingUrl || 'null'
+    });
+    console.error('==================================\n');
+    
+    // Return detailed error for debugging
+    const errorResponse = {
+      error: 'Failed to upload file',
+      message: error.message || 'Unknown error occurred',
+      type: error.constructor.name,
+      code: error.code,
+      fileName: req.body?.fileName,
+      sourcePath: req.body?.sourcePath
+    };
+    
+    // Add SQL error details if available
+    if (error.sqlMessage) {
+      errorResponse.sqlError = {
+        message: error.sqlMessage,
+        state: error.sqlState,
+        code: error.sqlCode
+      };
+    }
+    
+    // Add stack trace in development
+    if (process.env.NODE_ENV === 'development' || config.nodeEnv === 'development') {
+      errorResponse.stack = error.stack;
+      errorResponse.details = {
+        name: error.name,
+        variables: {
+          sourceFilePath: sourceFilePath || 'null',
+          targetFilePath: targetFilePath || 'null',
+          videoId: videoId || 'null'
+        }
+      };
+    }
+    
+    // Make sure response hasn't been sent
+    if (!res.headersSent) {
+      res.status(500).json(errorResponse);
+    } else {
+      console.error('ERROR: Response already sent, cannot send error response');
+    }
   }
 }
 
@@ -154,15 +930,15 @@ export async function getVideosWithMockUrls(req, res) {
 }
 
 /**
- * Update Cloudflare resource URL and optionally update videos using it
+ * Update My Storage resource URL and optionally update videos using it
  */
-export async function updateCloudflareResource(req, res) {
+export async function updateMyStorageResource(req, res) {
   try {
     const { id } = req.params;
     const { cloudflare_url, cloudflare_key, updateVideos = false } = req.body;
     
     if (!cloudflare_url) {
-      return res.status(400).json({ error: 'Cloudflare URL is required' });
+      return res.status(400).json({ error: 'Streaming URL is required' });
     }
     
     // Get old URL before updating
@@ -221,7 +997,7 @@ export async function updateCloudflareResource(req, res) {
           [cloudflare_url, cloudflare_url, oldUrl, oldUrl]
         );
         videosUpdated = updateResult.affectedRows;
-        console.log(`Updated ${videosUpdated} video(s) with new Cloudflare URL`);
+        console.log(`Updated ${videosUpdated} video(s) with new streaming URL`);
       } catch (updateError) {
         console.error('Error updating videos:', updateError);
         // Don't fail the resource update if video update fails
@@ -241,15 +1017,15 @@ export async function updateCloudflareResource(req, res) {
       videosUpdated
     });
   } catch (error) {
-    console.error('Error updating Cloudflare resource:', error);
+    console.error('Error updating My Storage resource:', error);
     res.status(500).json({ error: 'Failed to update resource', message: error.message });
   }
 }
 
 /**
- * Get videos using a specific Cloudflare resource URL
+ * Get videos using a specific streaming URL
  */
-export async function getVideosByCloudflareUrl(req, res) {
+export async function getVideosByStreamingUrl(req, res) {
   try {
     const { url } = req.query;
     
@@ -268,15 +1044,15 @@ export async function getVideosByCloudflareUrl(req, res) {
     
     res.json({ videos });
   } catch (error) {
-    console.error('Error getting videos by Cloudflare URL:', error);
+    console.error('Error getting videos by streaming URL:', error);
     res.status(500).json({ error: 'Failed to get videos', message: error.message });
   }
 }
 
 /**
- * Delete Cloudflare resource
+ * Delete My Storage resource
  */
-export async function deleteCloudflareResource(req, res) {
+export async function deleteMyStorageResource(req, res) {
   try {
     const { id } = req.params;
     
@@ -290,11 +1066,32 @@ export async function deleteCloudflareResource(req, res) {
       return res.status(404).json({ error: 'Resource not found' });
     }
     
-    // In real implementation, delete from Cloudflare here
+    // Delete from my-storage folder if file exists
+    try {
+      const [resources] = await pool.execute(
+        'SELECT cloudflare_key FROM cloudflare_resources WHERE id = ?',
+        [id]
+      );
+      if (resources.length > 0 && resources[0].cloudflare_key) {
+        const storagePath = resources[0].cloudflare_key.replace(/^cloudflare\//, 'my-storage/');
+        const backendDir = path.dirname(__dirname);
+        const basePath = path.dirname(backendDir);
+        const uploadPath = path.isAbsolute(config.upload.uploadPath) 
+          ? config.upload.uploadPath 
+          : path.resolve(basePath, config.upload.uploadPath);
+        const filePath = path.join(uploadPath, storagePath);
+        if (fsSync.existsSync(filePath)) {
+          await fs.unlink(filePath);
+          console.log(`Deleted file from my-storage: ${filePath}`);
+        }
+      }
+    } catch (fileError) {
+      console.warn('Error deleting file from my-storage:', fileError.message);
+    }
     
     res.json({ success: true, message: 'Resource deleted successfully' });
   } catch (error) {
-    console.error('Error deleting Cloudflare resource:', error);
+    console.error('Error deleting My Storage resource:', error);
     res.status(500).json({ error: 'Failed to delete resource', message: error.message });
   }
 }

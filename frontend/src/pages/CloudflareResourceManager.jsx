@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Upload, Cloud, FileVideo, Trash2, RefreshCw, CheckCircle, XCircle, AlertCircle, Download, Folder, HardDrive, Edit2, Save, X } from 'lucide-react';
 import api from '../services/api';
 
-function CloudflareResourceManager() {
+function MyStorageManager() {
   // State
   const [miscFiles, setMiscFiles] = useState([]);
   const [selectedMiscFiles, setSelectedMiscFiles] = useState([]);
@@ -143,7 +143,61 @@ function CloudflareResourceManager() {
       loadCloudflareResources();
     } catch (err) {
       console.error('Upload error:', err);
-      setError(err.response?.data?.error || 'Failed to upload files');
+      console.error('Error response:', err.response?.data);
+      
+      // Build comprehensive error message
+      let errorMessage = 'Failed to upload files';
+      let errorDetails = '';
+      
+      if (err.response?.data) {
+        const errorData = err.response.data;
+        
+        // Primary error message
+        errorMessage = errorData.error || errorData.message || errorMessage;
+        
+        // Add additional error information
+        const details = [];
+        
+        if (errorData.message && errorData.message !== errorData.error) {
+          details.push(`Details: ${errorData.message}`);
+        }
+        
+        if (errorData.type) {
+          details.push(`Error Type: ${errorData.type}`);
+        }
+        
+        if (errorData.code) {
+          details.push(`Error Code: ${errorData.code}`);
+        }
+        
+        if (errorData.sqlError) {
+          details.push(`SQL Error: ${errorData.sqlError.message || errorData.sqlError.code || 'Database error'}`);
+        }
+        
+        if (errorData.fileName) {
+          details.push(`File: ${errorData.fileName}`);
+        }
+        
+        if (errorData.sourcePath) {
+          details.push(`Source Path: ${errorData.sourcePath}`);
+        }
+        
+        if (errorData.debug) {
+          details.push(`Debug Info: ${JSON.stringify(errorData.debug, null, 2)}`);
+        }
+        
+        if (errorData.details) {
+          details.push(`Additional Details: ${JSON.stringify(errorData.details, null, 2)}`);
+        }
+        
+        if (details.length > 0) {
+          errorDetails = '\n\n' + details.join('\n');
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(`${errorMessage}${errorDetails}`);
     } finally {
       setLoading(false);
     }
@@ -174,7 +228,61 @@ function CloudflareResourceManager() {
       loadCloudflareResources();
     } catch (err) {
       console.error('Upload error:', err);
-      setError(err.response?.data?.error || 'Failed to upload files');
+      console.error('Error response:', err.response?.data);
+      
+      // Build comprehensive error message
+      let errorMessage = 'Failed to upload files';
+      let errorDetails = '';
+      
+      if (err.response?.data) {
+        const errorData = err.response.data;
+        
+        // Primary error message
+        errorMessage = errorData.error || errorData.message || errorMessage;
+        
+        // Add additional error information
+        const details = [];
+        
+        if (errorData.message && errorData.message !== errorData.error) {
+          details.push(`Details: ${errorData.message}`);
+        }
+        
+        if (errorData.type) {
+          details.push(`Error Type: ${errorData.type}`);
+        }
+        
+        if (errorData.code) {
+          details.push(`Error Code: ${errorData.code}`);
+        }
+        
+        if (errorData.sqlError) {
+          details.push(`SQL Error: ${errorData.sqlError.message || errorData.sqlError.code || 'Database error'}`);
+        }
+        
+        if (errorData.fileName) {
+          details.push(`File: ${errorData.fileName}`);
+        }
+        
+        if (errorData.sourcePath) {
+          details.push(`Source Path: ${errorData.sourcePath}`);
+        }
+        
+        if (errorData.debug) {
+          details.push(`Debug Info: ${JSON.stringify(errorData.debug, null, 2)}`);
+        }
+        
+        if (errorData.details) {
+          details.push(`Additional Details: ${JSON.stringify(errorData.details, null, 2)}`);
+        }
+        
+        if (details.length > 0) {
+          errorDetails = '\n\n' + details.join('\n');
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(`${errorMessage}${errorDetails}`);
     } finally {
       setLoading(false);
       e.target.value = '';
@@ -215,25 +323,49 @@ function CloudflareResourceManager() {
 
   const handleSaveUrl = async (id, oldUrl) => {
     if (!editUrlValue.trim()) {
-      setError('Cloudflare URL cannot be empty');
+      setError('Streaming URL cannot be empty');
       return;
+    }
+
+    let urlToSave = editUrlValue.trim();
+    
+    // If user entered a mock URL, convert it to localhost URL
+    if (isMockUrl(urlToSave)) {
+      // Find the resource to get storage path
+      const resource = cloudflareResources.find(r => r.id === id);
+      if (resource && resource.cloudflare_key) {
+        const storagePath = resource.cloudflare_key.replace(/^cloudflare\//, 'my-storage/');
+        const videoIdMatch = storagePath.match(/(?:my-storage|cloudflare)\/([^/]+)_master\./);
+        if (videoIdMatch) {
+          const videoId = videoIdMatch[1];
+          const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+          urlToSave = `${backendUrl}/s/${videoId}`;
+          setSuccess(`Converted mock URL to localhost: ${urlToSave}`);
+        } else {
+          setError('Cannot convert mock URL. Please enter a valid localhost streaming URL.');
+          return;
+        }
+      } else {
+        setError('Cannot convert mock URL. Please enter a valid localhost streaming URL.');
+        return;
+      }
     }
 
     // Check if there are videos using this URL
     const videos = await loadVideosForResource(oldUrl);
     const shouldUpdateVideos = videos.length > 0 && window.confirm(
-      `Found ${videos.length} video(s) using this Cloudflare URL.\n\n` +
+      `Found ${videos.length} video(s) using this streaming URL.\n\n` +
       `Do you want to update all these videos with the new URL?\n\n` +
       `Click OK to update videos, or Cancel to only update the resource.`
     );
 
     try {
       const response = await api.put(`/cloudflare/resources/${id}`, {
-        cloudflare_url: editUrlValue.trim(),
+        cloudflare_url: urlToSave,
         updateVideos: shouldUpdateVideos
       });
       
-      const message = response.data.message || 'Cloudflare URL updated successfully';
+      const message = response.data.message || 'Streaming URL updated successfully';
       setSuccess(message);
       setEditingUrl(null);
       setEditUrlValue('');
@@ -241,7 +373,7 @@ function CloudflareResourceManager() {
       loadVideosWithMockUrls();
     } catch (err) {
       console.error('Update error:', err);
-      setError(err.response?.data?.error || 'Failed to update Cloudflare URL');
+      setError(err.response?.data?.error || 'Failed to update streaming URL');
     }
   };
 
@@ -265,7 +397,39 @@ function CloudflareResourceManager() {
     return url.includes('your-account.r2.cloudflarestorage.com') ||
            url.includes('mock-cloudflare.example.com') ||
            url.includes('example.com') ||
-           url.includes('test.cloudflare');
+           url.includes('test.cloudflare') ||
+           url.includes('cloudflarestorage.com');
+  };
+
+  // Convert mock URL or storage path to localhost streaming URL
+  const getLocalhostUrl = (resource) => {
+    // If it's already a localhost URL, return it
+    if (resource.cloudflare_url && (resource.cloudflare_url.includes('localhost') || resource.cloudflare_url.includes('127.0.0.1'))) {
+      return resource.cloudflare_url;
+    }
+    
+    // If it's a mock URL or we have a storage path, convert it
+    if (isMockUrl(resource.cloudflare_url) || resource.cloudflare_key) {
+      const storagePath = resource.cloudflare_key || '';
+      // Extract video ID from storage path (format: my-storage/{videoId}_master.mp4)
+      const videoIdMatch = storagePath.match(/my-storage\/([^/]+)_master\./);
+      if (videoIdMatch) {
+        const videoId = videoIdMatch[1];
+        const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+        return `${backendUrl}/s/${videoId}`;
+      }
+      
+      // Try to extract from old cloudflare path format
+      const oldPathMatch = storagePath.match(/cloudflare\/[^/]+\/([^/]+)_master\./);
+      if (oldPathMatch) {
+        const videoId = oldPathMatch[1];
+        const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+        return `${backendUrl}/s/${videoId}`;
+      }
+    }
+    
+    // Return original URL if we can't convert it
+    return resource.cloudflare_url || '';
   };
 
   // Helper functions
@@ -301,10 +465,10 @@ function CloudflareResourceManager() {
     });
   };
 
-  // Generate CSV from Cloudflare resources
-  const generateCSVFromCloudflare = () => {
+  // Generate CSV from My Storage resources
+  const generateCSVFromMyStorage = () => {
     if (cloudflareResources.length === 0) {
-      setError('No Cloudflare resources available to generate CSV');
+      setError('No storage resources available to generate CSV');
       return;
     }
 
@@ -312,7 +476,7 @@ function CloudflareResourceManager() {
     const resourcesWithoutUrl = cloudflareResources.filter(r => !r.cloudflare_url || r.cloudflare_url.trim() === '');
     if (resourcesWithoutUrl.length > 0) {
       const proceed = window.confirm(
-        `Warning: ${resourcesWithoutUrl.length} resource(s) are missing Cloudflare URLs.\n\n` +
+        `Warning: ${resourcesWithoutUrl.length} resource(s) are missing streaming URLs.\n\n` +
         `These resources will be skipped in the CSV or will have empty Video File fields.\n\n` +
         `Do you want to proceed anyway?`
       );
@@ -325,8 +489,8 @@ function CloudflareResourceManager() {
     const mockUrlCount = cloudflareResources.filter(r => isMockUrl(r.cloudflare_url)).length;
     if (mockUrlCount > 0) {
       const proceed = window.confirm(
-        `Warning: ${mockUrlCount} resource(s) have mock/test Cloudflare URLs that cannot be accessed.\n\n` +
-        `These URLs will not work for video streaming. Please update them with real Cloudflare URLs before generating CSV.\n\n` +
+        `Warning: ${mockUrlCount} resource(s) have mock/test URLs that cannot be accessed.\n\n` +
+        `These URLs will not work for video streaming. Please update them with real streaming URLs before generating CSV.\n\n` +
         `Do you want to proceed anyway?`
       );
       if (!proceed) {
@@ -423,15 +587,38 @@ function CloudflareResourceManager() {
       // Extract filename without extension for name - REQUIRED
       const name = resource.file_name.replace(/\.[^/.]+$/, '') || `Video_${index + 1}`;
       
-      // Video File - Cloudflare URL - REQUIRED (this is the critical field)
-      // Use the actual URL from database, or construct from object_key if needed
-      let videoFile = resource.cloudflare_url || resource.cloudflareUrl || '';
+      // Video File - Streaming URL - REQUIRED (this is the critical field)
+      // Always use localhost URL - convert from mock URLs or storage path
+      let videoFile = '';
       
-      // If no URL but we have object_key, construct a placeholder URL
-      if (!videoFile && resource.object_key) {
-        // Construct a mock URL - user should update this with real URL
-        videoFile = `https://your-account.r2.cloudflarestorage.com/${resource.object_key}`;
-        console.warn(`[CSV] Resource ${resource.id} missing cloudflare_url, using constructed URL from object_key`);
+      // First, try to get localhost URL (convert mock URLs)
+      if (resource.cloudflare_url) {
+        if (isMockUrl(resource.cloudflare_url)) {
+          // Convert mock URL to localhost URL using storage path
+          const storagePath = resource.cloudflare_key || '';
+          const videoIdMatch = storagePath.match(/(?:my-storage|cloudflare)\/([^/]+)_master\./);
+          if (videoIdMatch) {
+            const videoId = videoIdMatch[1];
+            const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+            videoFile = `${backendUrl}/s/${videoId}`;
+            console.log(`[CSV] Converted mock URL to localhost: ${videoFile}`);
+          }
+        } else if (resource.cloudflare_url.includes('localhost') || resource.cloudflare_url.includes('127.0.0.1')) {
+          // Already a localhost URL
+          videoFile = resource.cloudflare_url;
+        }
+      }
+      
+      // If still no URL, try to construct from storage path
+      if (!videoFile && resource.cloudflare_key) {
+        const storagePath = resource.cloudflare_key.replace(/^cloudflare\//, 'my-storage/');
+        const videoIdMatch = storagePath.match(/(?:my-storage|cloudflare)\/([^/]+)_master\./);
+        if (videoIdMatch) {
+          const videoId = videoIdMatch[1];
+          const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+          videoFile = `${backendUrl}/s/${videoId}`;
+          console.log(`[CSV] Constructed localhost URL from storage path: ${videoFile}`);
+        }
       }
       
       // Ensure videoFile is not empty (required field)
@@ -454,7 +641,7 @@ function CloudflareResourceManager() {
       
       return [
         name,           // Name - video title (REQUIRED)
-        videoFile,      // Video File - Cloudflare URL (REQUIRED)
+        videoFile,      // Video File - Streaming URL (REQUIRED)
         thumbnail       // Thumbnail path (OPTIONAL - will use default if empty)
       ];
     })
@@ -526,7 +713,7 @@ function CloudflareResourceManager() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `cloudflare_resources_${Date.now()}.csv`;
+      a.download = `my_storage_resources_${Date.now()}.csv`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -552,9 +739,9 @@ function CloudflareResourceManager() {
                 <div className="p-3 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-xl shadow-lg">
                   <Cloud className="w-10 h-10 text-white" />
                 </div>
-                Cloudflare Resource Manager
+                My Storage Manager
               </h1>
-              <p className="text-gray-600 text-lg ml-16">Upload files from your PC or misc folder to Cloudflare storage</p>
+              <p className="text-gray-600 text-lg ml-16">Upload files from misc folder to local storage (my-storage) with localhost streaming URLs</p>
             </div>
             <button
               onClick={() => {
@@ -574,8 +761,13 @@ function CloudflareResourceManager() {
         {error && (
           <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg text-red-700 flex items-start gap-3 shadow-sm">
             <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-            <div className="flex-1 font-medium">{error}</div>
-            <button onClick={() => setError('')} className="text-red-500 hover:text-red-700 transition-colors">
+            <div className="flex-1">
+              <div className="font-semibold mb-1">Upload Failed</div>
+              <div className="text-sm whitespace-pre-wrap font-mono bg-red-100 p-2 rounded border border-red-200 overflow-auto max-h-96">
+                {error}
+              </div>
+            </div>
+            <button onClick={() => setError('')} className="text-red-500 hover:text-red-700 transition-colors flex-shrink-0">
               <XCircle className="w-5 h-5" />
             </button>
           </div>
@@ -598,8 +790,8 @@ function CloudflareResourceManager() {
             <div className="flex-1">
               <div className="font-semibold mb-1">Mock/Test URLs Detected</div>
               <div className="text-sm">
-                Some resources have mock/test Cloudflare URLs that cannot be accessed. 
-                Click the edit icon next to each URL to update them with real Cloudflare URLs.
+                Some resources have mock/test URLs that cannot be accessed. 
+                Click the edit icon next to each URL to update them with real streaming URLs.
                 Videos with mock URLs will not play correctly.
               </div>
             </div>
@@ -652,7 +844,16 @@ function CloudflareResourceManager() {
                 <div className="text-center py-16 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
                   <FileVideo className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                   <div className="text-gray-500 font-medium text-lg mb-2">No files found</div>
-                  <div className="text-gray-400 text-sm">Files in misc folder will appear here</div>
+                  <div className="text-gray-400 text-sm mb-4">Files in misc folder will appear here</div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-md mx-auto">
+                    <div className="text-blue-800 font-semibold text-sm mb-2">📁 Misc Folder Location:</div>
+                    <div className="text-blue-600 text-xs font-mono break-all">
+                      video-storage/misc/
+                    </div>
+                    <div className="text-blue-700 text-xs mt-2">
+                      Add your video files (.mp4, .webm, etc.) to this folder, then click the refresh button above.
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -703,7 +904,7 @@ function CloudflareResourceManager() {
                     className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all disabled:from-blue-400 disabled:to-blue-500 font-medium shadow-md"
                   >
                     <Upload className="w-5 h-5" />
-                    Upload {selectedMiscFiles.length} Selected to Cloudflare
+                    Upload {selectedMiscFiles.length} Selected to Local Storage
                   </button>
                   <button
                     onClick={() => handleUploadFromMisc(true)}
@@ -742,7 +943,7 @@ function CloudflareResourceManager() {
             </div>
           </div>
 
-          {/* Right Side - Cloudflare Storage */}
+          {/* Right Side - My Storage */}
           <div className="bg-white rounded-xl shadow-lg border border-gray-200 flex flex-col overflow-hidden">
             {/* Header */}
             <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-blue-50">
@@ -751,14 +952,14 @@ function CloudflareResourceManager() {
                   <div className="p-1.5 bg-purple-600 rounded-lg">
                     <HardDrive className="w-5 h-5 text-white" />
                   </div>
-                  Cloudflare Storage
+                  My Storage
                   <span className="ml-2 px-2.5 py-0.5 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">
                     {cloudflareResources.length}
                   </span>
                 </h2>
                 {cloudflareResources.length > 0 && (
                   <button
-                    onClick={generateCSVFromCloudflare}
+                    onClick={generateCSVFromMyStorage}
                     className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium shadow-sm"
                   >
                     <Download className="w-4 h-4" />
@@ -788,8 +989,8 @@ function CloudflareResourceManager() {
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">File Name</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Size</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Cloudflare URL</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Object Key</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Streaming URL</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Storage Path</th>
                           <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">Action</th>
                         </tr>
                       </thead>
@@ -819,7 +1020,7 @@ function CloudflareResourceManager() {
                                       value={editUrlValue}
                                       onChange={(e) => setEditUrlValue(e.target.value)}
                                       className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                      placeholder="Enter Cloudflare URL"
+                                      placeholder="Enter Streaming URL"
                                       autoFocus
                                     />
                                     <button
@@ -845,27 +1046,35 @@ function CloudflareResourceManager() {
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-2">
-                                  <a
-                                    href={resource.cloudflare_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className={`text-sm hover:underline truncate max-w-xs block flex items-center gap-1 ${
-                                      isMockUrl(resource.cloudflare_url)
-                                        ? 'text-red-600 hover:text-red-700'
-                                        : 'text-blue-600 hover:text-blue-700'
-                                    }`}
-                                    title={resource.cloudflare_url}
-                                  >
-                                    <Cloud className="w-3 h-3" />
-                                    {resource.cloudflare_url && resource.cloudflare_url.length > 40 
-                                      ? resource.cloudflare_url.substring(0, 40) + '...' 
-                                      : resource.cloudflare_url || 'No URL'}
-                                  </a>
-                                  {isMockUrl(resource.cloudflare_url) && (
-                                    <span className="text-xs text-red-600 font-medium" title="Mock/Test URL - Not accessible">
-                                      ⚠️
-                                    </span>
-                                  )}
+                                  {(() => {
+                                    const displayUrl = getLocalhostUrl(resource);
+                                    const isMock = isMockUrl(resource.cloudflare_url);
+                                    return (
+                                      <>
+                                        <a
+                                          href={displayUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className={`text-sm hover:underline truncate max-w-xs block flex items-center gap-1 ${
+                                            isMock
+                                              ? 'text-orange-600 hover:text-orange-700'
+                                              : 'text-blue-600 hover:text-blue-700'
+                                          }`}
+                                          title={displayUrl}
+                                        >
+                                          <Cloud className="w-3 h-3" />
+                                          {displayUrl && displayUrl.length > 40 
+                                            ? displayUrl.substring(0, 40) + '...' 
+                                            : displayUrl || 'No URL'}
+                                        </a>
+                                        {isMock && (
+                                          <span className="text-xs text-orange-600 font-medium" title="Converted from mock URL to localhost">
+                                            🔄
+                                          </span>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
                                   {resourceVideos[resource.id] && resourceVideos[resource.id].length > 0 && (
                                     <button
                                       onClick={() => handleShowVideos(resource)}
@@ -880,7 +1089,7 @@ function CloudflareResourceManager() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="text-xs text-gray-600 font-mono bg-gray-50 px-2 py-1 rounded truncate max-w-xs" title={resource.cloudflare_key || resource.object_key || 'N/A'}>
-                                {resource.cloudflare_key || resource.object_key || 'N/A'}
+                                {resource.cloudflare_key ? resource.cloudflare_key.replace(/^cloudflare\//, 'my-storage/') : (resource.object_key || 'N/A')}
                               </div>
                             </td>
                             <td className="px-4 py-3 text-center">
@@ -933,7 +1142,7 @@ function CloudflareResourceManager() {
                 <div className="flex justify-between items-center">
                   <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                     <FileVideo className="w-6 h-6 text-purple-600" />
-                    Videos Using This Cloudflare URL
+                    Videos Using This Streaming URL
                     <span className="ml-2 px-2.5 py-0.5 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">
                       {resourceVideos[showVideosModal].length}
                     </span>
@@ -1048,4 +1257,4 @@ function CloudflareResourceManager() {
   );
 }
 
-export default CloudflareResourceManager;
+export default MyStorageManager;

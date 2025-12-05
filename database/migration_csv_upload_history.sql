@@ -20,3 +20,5 @@ CREATE TABLE IF NOT EXISTS csv_upload_history (
   INDEX idx_uploaded_by (uploaded_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+
+

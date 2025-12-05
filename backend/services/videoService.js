@@ -354,13 +354,15 @@ export async function getVideoVersions(videoId) {
 }
 
 /**
- * Build streaming URL (CDN or local)
+ * Build streaming URL - Always use localhost for local streaming
+ * This ensures videos are streamed from localhost instead of Cloudflare URLs
  */
-export function buildStreamingUrl(relativePath, videoId = null) {
-  if (config.cdn.useCdn) {
-    return `${config.cdn.cdnBaseUrl}${relativePath}`;
+export function buildStreamingUrl(relativePath, videoId = null, redirectSlug = null) {
+  // Always use localhost streaming endpoint for proper range request support
+  // Use redirect_slug if available (for short URLs like /s/:slug), otherwise use videoId
+  if (redirectSlug) {
+    return `${config.urls.base}/s/${redirectSlug}`;
   }
-  // Use streaming endpoint for proper range request support
   if (videoId) {
     return `${config.urls.base}/api/videos/${videoId}/stream`;
   }

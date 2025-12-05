@@ -239,8 +239,10 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null }) {
               console.log('Source not supported for mock URL (expected), StreamPage should handle fallback');
               return; // Don't set error for mock URLs
             }
-            // Check if it's a Cloudflare URL that might not be accessible
-            if (src && (src.includes('cloudflare') || src.startsWith('http'))) {
+            // Check if it's a localhost URL - these should work, so show a different error
+            if (src && (src.includes('localhost') || src.includes('127.0.0.1'))) {
+              errorMessage = 'Video format not supported or file may be missing. Please check if the video file exists on the server.';
+            } else if (src && (src.includes('cloudflare') || src.startsWith('http'))) {
               errorMessage = 'Video URL not accessible. The Cloudflare URL may be invalid, the video may not exist, or there may be SSL/CORS issues.';
             } else {
               errorMessage = 'Video format not supported. The local file may be missing or corrupted.';

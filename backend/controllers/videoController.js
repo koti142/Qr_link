@@ -203,7 +203,6 @@ export const uploadVideo = [
         console.log('File renamed for version:', latestVersion);
       }
       
-      const streamingUrl = videoService.buildStreamingUrl(relativePath, videoId);
       const redirectSlug = videoId;
       // Redirect to stream page so users can directly watch the video
       const redirectUrl = `${config.urls.frontend}/stream/${videoId}`;
@@ -213,6 +212,10 @@ export const uploadVideo = [
       const redirectResult = await redirectService.createRedirect(redirectSlug, redirectUrl, true);
       const shortUrl = redirectResult.shortUrl || redirectUrl;
       const shortSlug = redirectResult.shortSlug || redirectSlug;
+      
+      // Build streaming URL using localhost with redirect slug (for short URLs like /s/:slug)
+      // This ensures videos are always streamed from localhost instead of Cloudflare URLs
+      const streamingUrl = videoService.buildStreamingUrl(relativePath, videoId, shortSlug);
       
       console.log('Generating QR code with short URL...');
       // Generate QR code with short URL

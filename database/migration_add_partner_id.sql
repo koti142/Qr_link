@@ -15,3 +15,5 @@ ALTER TABLE videos
 -- ALTER TABLE videos 
 --   ADD UNIQUE INDEX IF NOT EXISTS unique_partner_id (partner_id);
 
+
+
