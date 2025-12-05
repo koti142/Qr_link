@@ -955,10 +955,13 @@ export async function bulkUploadFromCSV(req, res) {
         
         console.log(`[Row ${rowNumber}] Using video ID from CSV: ${videoId} (cleaned from original)`);
         
-        // CRITICAL: Check if video already exists in BOTH videos table AND cloudflare_resources table
-        // Skip duplicates early - check both tables
+        // CRITICAL: Check if video already exists in VIDEOS table ONLY
+        // CSV uploads should ONLY check videos table (not cloudflare_resources)
+        // Manual uploads to My Storage go to cloudflare_resources only
+        // CSV uploads create entries in BOTH videos and cloudflare_resources
+        // But we only check videos table for duplicates to avoid false positives
         
-        // Check 1: videos table by videoId
+        // Check videos table by videoId
         const existingVideoInVideos = await videoService.getVideoByVideoId(videoId, true);
         if (existingVideoInVideos) {
           // SKIP duplicate - video already exists in videos table
@@ -979,39 +982,10 @@ export async function bulkUploadFromCSV(req, res) {
           continue; // Skip to next row - don't process this video
         }
         
-        // Check 2: cloudflare_resources table by videoId pattern in cloudflare_key
-        // This prevents duplicates in My Storage section
-        // Note: We'll do a more accurate check later when we have the storagePath
-        try {
-          const [existingResources] = await pool.execute(
-            `SELECT * FROM cloudflare_resources 
-             WHERE cloudflare_key LIKE ? OR cloudflare_key LIKE ? OR cloudflare_key = ? OR file_name LIKE ?
-             LIMIT 1`,
-            [`%${videoId}_master%`, `my-storage/${videoId}%`, `my-storage/${videoId}_master%`, `%${videoId}%`]
-          );
-          
-          if (existingResources.length > 0) {
-            // SKIP duplicate - already exists in cloudflare_resources (My Storage)
-            const safeVideoId = typeof videoId !== 'undefined' ? videoId : 'N/A';
-            const safeTitle = typeof title !== 'undefined' ? title : 'Untitled Video';
-            results.failed++;
-            results.errors.push({
-              row: rowNumber,
-              video: safeTitle,
-              message: `Video with ID "${videoId}" already exists in My Storage section. Skipping duplicate.`,
-              errorType: 'DuplicateResource',
-              errorCode: 'DUPLICATE_RESOURCE',
-              videoId: safeVideoId,
-              title: safeTitle,
-              videoFilePath: typeof videoFilePath !== 'undefined' ? videoFilePath : 'N/A'
-            });
-            console.log(`[Row ${rowNumber}] ⏭️ SKIPPED: Video with ID "${videoId}" already exists in cloudflare_resources table (My Storage). Skipping duplicate.`);
-            continue; // Skip to next row - don't process this video
-          }
-        } catch (resourceCheckError) {
-          console.warn(`[Row ${rowNumber}] Error checking cloudflare_resources:`, resourceCheckError.message);
-          // Continue processing - don't fail on check error
-        }
+        // NOTE: We do NOT check cloudflare_resources table here
+        // Manual uploads to My Storage are stored in cloudflare_resources only
+        // CSV uploads should create entries in BOTH videos and cloudflare_resources
+        // So we only check videos table to determine if it's a duplicate
         
         // Store original videoId
         const originalVideoId = videoId;
@@ -1208,56 +1182,9 @@ export async function bulkUploadFromCSV(req, res) {
               continue; // Skip to next row
             }
             
-            // Also check cloudflare_resources by the actual file path that will be stored
-            // This catches duplicates from manual uploads to My Storage
-            // Check by file path, filename, and file size to catch same video with different names
-            try {
-              const fileName = path.basename(relativePath);
-              // Normalize filename for comparison (remove spaces, underscores, case-insensitive)
-              const normalizedFileName = fileName.toLowerCase().replace(/[_\s-]/g, '');
-              
-              // Get file size if we have the target file
-              let fileSizeToCheck = size || 0;
-              if (targetFilePath && fsSync.existsSync(targetFilePath)) {
-                try {
-                  const stats = await fs.stat(targetFilePath);
-                  fileSizeToCheck = stats.size;
-                } catch (statError) {
-                  console.warn(`[Row ${rowNumber}] Could not get file size:`, statError.message);
-                }
-              }
-              
-              const [resourcesByPath] = await pool.execute(
-                `SELECT * FROM cloudflare_resources 
-                 WHERE cloudflare_key = ? 
-                    OR file_name = ?
-                    OR (LOWER(REPLACE(REPLACE(REPLACE(file_name, '_', ''), ' ', ''), '-', '')) = ? AND file_size = ?)
-                 LIMIT 1`,
-                [relativePath, fileName, normalizedFileName, fileSizeToCheck]
-              );
-              if (resourcesByPath.length > 0) {
-                // SKIP duplicate - file path or same file (by size and normalized name) already exists in cloudflare_resources (My Storage)
-                const safeVideoId = typeof videoId !== 'undefined' ? videoId : 'N/A';
-                const safeTitle = typeof title !== 'undefined' ? title : 'Untitled Video';
-                results.failed++;
-                results.errors.push({
-                  row: rowNumber,
-                  video: safeTitle,
-                  message: `Video file already exists in My Storage section (same file: ${resourcesByPath[0].file_name}). Skipping duplicate.`,
-                  errorType: 'DuplicateResource',
-                  errorCode: 'DUPLICATE_RESOURCE',
-                  videoId: safeVideoId,
-                  title: safeTitle,
-                  videoFilePath: typeof videoFilePath !== 'undefined' ? videoFilePath : 'N/A'
-                });
-                console.log(`[Row ${rowNumber}] ⏭️ SKIPPED: File already exists in cloudflare_resources (My Storage)`);
-                console.log(`[Row ${rowNumber}]   Existing: ${resourcesByPath[0].file_name} (${resourcesByPath[0].file_size} bytes)`);
-                console.log(`[Row ${rowNumber}]   New: ${fileName} (${fileSizeToCheck} bytes)`);
-                continue; // Skip to next row
-              }
-            } catch (resourcePathError) {
-              console.warn(`[Row ${rowNumber}] Error checking cloudflare_resources by path:`, resourcePathError.message);
-            }
+            // NOTE: We do NOT check cloudflare_resources table here
+            // CSV uploads should only check videos table for duplicates
+            // Manual uploads to My Storage are separate and don't prevent CSV uploads
           }
 
           // Copy video file to my-storage (only if target doesn't exist or is different)
@@ -1689,63 +1616,36 @@ export async function bulkUploadFromCSV(req, res) {
             }
           }
           
-          // CRITICAL: Check if cloudflare_resources entry already exists before inserting
-          // This prevents duplicates in My Storage section
-          // Check by multiple criteria: cloudflare_key, cloudflare_url, file_name, and file_size
-          // Also check by normalized filename (removing spaces, underscores, dashes) + file size
-          const normalizedFileName = fileName.toLowerCase().replace(/[_\s-]/g, '');
-          const fileSizeToCheck = size || 0;
+          // Create cloudflare_resources entry for CSV uploads
+          // NOTE: We do NOT check for duplicates in cloudflare_resources
+          // CSV uploads create entries in BOTH videos and cloudflare_resources
+          // Manual uploads to My Storage are separate and don't prevent CSV uploads
+          // We only check videos table for duplicates (done earlier)
+          console.log(`[Row ${rowNumber}] Creating cloudflare_resources entry:`, {
+            fileName,
+            storagePath,
+            streamingUrl: localhostUrl?.substring(0, 80),
+            size: size || 0
+          });
           
-          const [existingResource] = await pool.execute(
-            `SELECT * FROM cloudflare_resources 
-             WHERE cloudflare_key = ? 
-                OR cloudflare_url = ?
-                OR file_name = ?
-                OR (LOWER(REPLACE(REPLACE(REPLACE(file_name, '_', ''), ' ', ''), '-', '')) = ? AND file_size = ?)
-             LIMIT 1`,
+          await pool.execute(
+            `INSERT INTO cloudflare_resources 
+             (file_name, original_file_name, file_size, file_type, cloudflare_url, cloudflare_key, storage_type, source_type, source_path, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-              storagePath, 
-              localhostUrl,
               fileName,
-              normalizedFileName,
-              fileSizeToCheck
+              fileName,
+              size || 0,
+              'video/mp4',
+              localhostUrl,
+              storagePath, // my-storage path
+              'my-storage',
+              'csv-upload',
+              videoFilePath || null,
+              'completed'
             ]
           );
-          
-          if (existingResource.length > 0) {
-            // SKIP - already exists in cloudflare_resources (My Storage)
-            console.log(`[Row ${rowNumber}] ⏭️ SKIPPED: Resource already exists in cloudflare_resources (My Storage)`);
-            console.log(`[Row ${rowNumber}]   Existing resource: ${existingResource[0].file_name} (${existingResource[0].file_size} bytes)`);
-            console.log(`[Row ${rowNumber}]   New resource would be: ${fileName} (${fileSizeToCheck} bytes)`);
-            console.log(`[Row ${rowNumber}]   Match found by: ${existingResource[0].cloudflare_key === storagePath ? 'path' : existingResource[0].cloudflare_url === localhostUrl ? 'URL' : 'filename+size'}`);
-            // Don't create duplicate entry
-          } else {
-            console.log(`[Row ${rowNumber}] Creating cloudflare_resources entry:`, {
-              fileName,
-              storagePath,
-              streamingUrl: localhostUrl?.substring(0, 80),
-              size: size || 0
-            });
-            
-            await pool.execute(
-              `INSERT INTO cloudflare_resources 
-               (file_name, original_file_name, file_size, file_type, cloudflare_url, cloudflare_key, storage_type, source_type, source_path, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-              [
-                fileName,
-                fileName,
-                size || 0,
-                'video/mp4',
-                localhostUrl,
-                storagePath, // my-storage path
-                'my-storage',
-                'csv-upload',
-                videoFilePath || null,
-                'completed'
-              ]
-            );
-            console.log(`[Row ${rowNumber}] ✓ Created cloudflare_resources entry for My Storage with path: ${storagePath}`);
-          }
+          console.log(`[Row ${rowNumber}] ✓ Created cloudflare_resources entry for My Storage with path: ${storagePath}`);
         } catch (resourceError) {
           console.error(`[Row ${rowNumber}] ✗ CRITICAL: Failed to create cloudflare_resources entry:`, resourceError.message);
           console.error(`[Row ${rowNumber}] ✗ Resource error code:`, resourceError.code);

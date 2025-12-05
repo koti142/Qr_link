@@ -944,58 +944,30 @@ export async function uploadToMyStorage(req, res) {
     console.log(`  Videos uploaded via CSV bulk upload will appear in Videos page`);
     console.log(`  Videos uploaded manually (PC/misc) will only appear in My Storage section`);
     
-    // CRITICAL: Check if cloudflare_resources entry already exists before inserting
-    // This prevents duplicates when same video is uploaded multiple times
+    // Create entry in cloudflare_resources table for tracking (database schema uses cloudflare_* names)
+    // But we store localhost URLs and my-storage paths
     let resourceResult;
     try {
       const localhostUrl = streamingUrl;
-      
-      // Check for existing resource by multiple criteria
-      const [existingResource] = await pool.execute(
-        `SELECT * FROM cloudflare_resources 
-         WHERE cloudflare_key = ? 
-            OR cloudflare_url = ?
-            OR (file_name = ? AND file_size = ?)
-            OR (file_name LIKE ? AND file_size = ?)
-         LIMIT 1`,
-        [
-          relativePath,
-          localhostUrl,
-          fileName,
+    const [result] = await pool.execute(
+      `INSERT INTO cloudflare_resources 
+       (file_name, original_file_name, file_size, file_type, cloudflare_url, cloudflare_key, storage_type, source_type, source_path, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        fileName,
+        fileName,
           actualFileSize,
-          `%${fileName.replace(/[_-]/g, '%')}%`, // Normalized filename match
-          actualFileSize
-        ]
-      );
-      
-      if (existingResource.length > 0) {
-        // Resource already exists - don't create duplicate
-        console.log(`⚠️ Resource already exists in cloudflare_resources (My Storage)`);
-        console.log(`   Existing: ${existingResource[0].file_name} (${existingResource[0].file_size} bytes)`);
-        console.log(`   Skipping duplicate entry creation`);
-        resourceResult = { insertId: existingResource[0].id };
-      } else {
-        // Create new entry
-        const [result] = await pool.execute(
-          `INSERT INTO cloudflare_resources 
-           (file_name, original_file_name, file_size, file_type, cloudflare_url, cloudflare_key, storage_type, source_type, source_path, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            fileName,
-            fileName,
-            actualFileSize,
-            fileType || 'application/octet-stream',
-            localhostUrl,
-            relativePath, // This is the my-storage path
-            'my-storage',
-            sourceType || 'upload',
-            sourcePath || null,
-            'completed'
-          ]
-        );
-        resourceResult = result;
-        console.log(`✓ Resource entry created with ID: ${result.insertId}`);
-      }
+        fileType || 'application/octet-stream',
+          localhostUrl,
+          relativePath, // This is the my-storage path
+          'my-storage',
+        sourceType || 'upload',
+        sourcePath || null,
+        'completed'
+      ]
+    );
+      resourceResult = result;
+      console.log(`✓ Resource entry created with ID: ${result.insertId}`);
     } catch (resourceError) {
       console.error('Error creating resource entry:', resourceError);
       console.error('Resource error details:', {
