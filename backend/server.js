@@ -50,6 +50,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/video-storage', express.static(path.join(__dirname, '../video-storage')));
 app.use('/qr-codes', express.static(path.join(__dirname, '../qr-codes')));
 app.use('/thumbnails', express.static(path.join(__dirname, '../video-storage/thumbnails')));
+// Serve uploaded videos from backend/upload folder
+app.use('/upload', express.static(path.join(__dirname, 'upload')));
 
 // Log all API requests
 app.use('/api', (req, res, next) => {

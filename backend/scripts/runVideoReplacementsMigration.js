@@ -8,17 +8,17 @@ const __dirname = path.dirname(__filename);
 
 async function runMigration() {
   try {
-    console.log('Running Cloudflare resources migration...\n');
+    console.log('Running video replacements migration...\n');
     
-    const migrationPath = path.join(__dirname, '../../database/migration_cloudflare_resources.sql');
+    const migrationPath = path.join(__dirname, '../../database/migration_video_replacements.sql');
     const migrationSQL = await fs.readFile(migrationPath, 'utf-8');
     
     // Split by semicolons and execute each statement
     const statements = migrationSQL
       .split(';')
       .map(s => s.trim())
-      .filter(s => s.length > 0 && !s.startsWith('--'));
-    
+      .filter(s => s.length > 0 && !s.startsWith('--') && !s.startsWith('USE'));
+
     for (const statement of statements) {
       if (statement) {
         try {
@@ -36,6 +36,7 @@ async function runMigration() {
     }
     
     console.log('\n✅ Migration completed successfully!');
+    console.log('✅ video_replacements table created for block storage tracking');
     process.exit(0);
   } catch (error) {
     console.error('❌ Migration failed:', error);
@@ -44,8 +45,4 @@ async function runMigration() {
 }
 
 runMigration();
-
-
-
-
 
