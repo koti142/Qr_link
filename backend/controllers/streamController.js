@@ -45,6 +45,205 @@ function getContentType(filePath) {
 }
 
 /**
+ * Generate HTML page with Video.js player
+ */
+function generateVideoPlayerHTML(streamUrl, captionsUrl, videoTitle) {
+  const captionsTrack = captionsUrl ? `
+                <track kind="captions" src="${captionsUrl}" srclang="en" label="English" default />` : '';
+  
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${videoTitle}</title>
+    
+    <!-- Video.js CSS -->
+    <link href="https://vjs.zencdn.net/8.6.1/video-js.css" rel="stylesheet" />
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(to bottom right, #f5f5f5, #e0e0e0);
+            min-height: 100vh;
+        }
+        
+        .video-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+        }
+        
+        .video-title {
+            text-align: center;
+            padding: 20px;
+            background: white;
+            margin-bottom: 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .video-title h1 {
+            margin: 0;
+            font-size: 24px;
+            color: #333;
+            font-weight: 600;
+        }
+        
+        /* 16:9 Aspect Ratio */
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            padding-bottom: 56.25%;
+            height: 0;
+            overflow: hidden;
+        }
+        
+        .video-wrapper video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .video-js {
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* Hide download controls */
+        .video-js video::-webkit-media-controls-enclosure {
+            overflow: hidden;
+        }
+        
+        .video-js .vjs-control-bar {
+            background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.6) 50%, transparent 100%);
+        }
+        
+        .video-js .vjs-big-play-button {
+            border-radius: 50%;
+            width: 80px;
+            height: 80px;
+            line-height: 80px;
+            margin-left: -40px;
+            margin-top: -40px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 3px solid white;
+        }
+        
+        .video-js .vjs-big-play-button:hover {
+            background: rgba(0, 0, 0, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <div class="video-container">
+        ${videoTitle ? `<div class="video-title"><h1>${videoTitle}</h1></div>` : ''}
+        <div class="video-wrapper">
+            <video
+                id="video-player"
+                class="video-js vjs-default-skin vjs-big-play-centered"
+                controls
+                preload="auto"
+                controlsList="nodownload noplaybackrate"
+                disablePictureInPicture
+                data-setup='{}'
+            >
+                <source src="${streamUrl}" type="video/mp4" />
+                ${captionsTrack}
+            </video>
+        </div>
+    </div>
+
+    <!-- Video.js Core -->
+    <script src="https://vjs.zencdn.net/8.6.1/video.min.js"></script>
+    
+    <!-- Video.js HTTP Streaming (HLS) -->
+    <script src="https://unpkg.com/@videojs/http-streaming@3.0.2/dist/videojs-http-streaming.min.js"></script>
+    
+    <!-- Quality Levels & Selector -->
+    <script src="https://cdn.jsdelivr.net/npm/videojs-contrib-quality-levels@3.0.0/dist/videojs-contrib-quality-levels.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/videojs-hls-quality-selector@1.1.4/dist/videojs-hls-quality-selector.min.js"></script>
+
+    <script>
+        const STREAM_URL = "${streamUrl}";
+        const CAPTIONS_URL = ${captionsUrl ? `"${captionsUrl}"` : 'null'};
+
+        const player = videojs('video-player', {
+            fluid: true,
+            responsive: true,
+            aspectRatio: '16:9',
+            controls: true,
+            preload: 'auto',
+            html5: {
+                vhs: {
+                    overrideNative: true,
+                    enableLowInitialPlaylist: true,
+                    smoothQualityChange: true
+                }
+            }
+        });
+
+        // Set video source
+        player.src(STREAM_URL);
+
+        // Add captions
+        if (CAPTIONS_URL) {
+            player.addRemoteTextTrack({
+                kind: 'captions',
+                src: CAPTIONS_URL,
+                srclang: 'en',
+                label: 'English',
+                default: true
+            }, false);
+        }
+
+        // Initialize when ready
+        player.ready(function() {
+            // Enable quality selector if available
+            if (player.qualityLevels && player.hlsQualitySelector) {
+                try {
+                    player.hlsQualitySelector({
+                        displayCurrentQuality: true
+                    });
+                } catch (e) {
+                    console.log('Quality selector not available for this video format');
+                }
+            }
+
+            // Disable right-click
+            const videoEl = player.el().querySelector('video');
+            if (videoEl) {
+                videoEl.addEventListener('contextmenu', function(e) {
+                    e.preventDefault();
+                });
+                videoEl.disablePictureInPicture = true;
+                videoEl.setAttribute('controlsList', 'nodownload noplaybackrate');
+            }
+
+            // Prevent download shortcuts
+            document.addEventListener('keydown', function(e) {
+                if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+                    e.preventDefault();
+                }
+            });
+        });
+
+        // Error handling
+        player.on('error', function() {
+            console.error('Player error:', player.error());
+        });
+    </script>
+</body>
+</html>`;
+}
+
+/**
  * Stream video with HTTP range request support
  * This allows seeking, partial downloads, and efficient streaming
  */
@@ -53,6 +252,20 @@ export async function streamVideo(req, res) {
     const { videoId } = req.params;
     // Check if this is a short slug route using the flag set by the route handler
     const isShortSlugRoute = req.isShortSlugRoute === true;
+    
+    // Check if this is a browser request (not a video player request)
+    // Browser requests typically have Accept: text/html
+    // Video player requests have Range header for seeking or specific video MIME types
+    const acceptHeader = req.headers.accept || '';
+    const hasRangeHeader = req.headers.range;
+    const userAgent = req.headers['user-agent'] || '';
+    const isVideoPlayerRequest = hasRangeHeader || 
+                                 acceptHeader.includes('video/') || 
+                                 acceptHeader.includes('application/octet-stream');
+    const isBrowserRequest = !isVideoPlayerRequest && 
+                            (acceptHeader.includes('text/html') || 
+                             acceptHeader === '' || 
+                             acceptHeader.includes('*/*'));
     
     // Handle URL-encoded video IDs (e.g., "AllAboutMyFamily2_Prek2_Lesson3_M3_Emotions")
     // Decode the videoId in case it's URL-encoded
@@ -74,6 +287,8 @@ export async function streamVideo(req, res) {
     console.log('Stream request received for videoId:', videoId);
     console.log('Decoded videoId:', lookupId);
     console.log('Is short slug route:', isShortSlugRoute);
+    console.log('Is browser request:', isBrowserRequest);
+    console.log('Is video player request:', isVideoPlayerRequest);
     console.log('Request details:', {
       method: req.method,
       url: req.url,
@@ -81,8 +296,73 @@ export async function streamVideo(req, res) {
       path: req.path,
       params: req.params,
       query: req.query,
-      isShortSlugRoute: req.isShortSlugRoute
+      isShortSlugRoute: req.isShortSlugRoute,
+      accept: acceptHeader,
+      hasRange: !!hasRangeHeader,
+      userAgent: userAgent.substring(0, 50) // Log first 50 chars of user agent
     });
+    
+    // If this is a browser request (not a video player), serve HTML page with Video.js player
+    // This ensures the Video.js player is used instead of browser's default player
+    if (isBrowserRequest && isShortSlugRoute) {
+      console.log('🌐 Browser request detected, serving HTML page with Video.js player');
+      
+      // First, get video information to display title and get stream URL
+      let video;
+      try {
+        video = await videoService.getVideoByRedirectSlug(lookupId, true);
+        if (!video) {
+          video = await videoService.getVideoByVideoId(lookupId, true);
+        }
+      } catch (videoError) {
+        console.error('Error fetching video for HTML player:', videoError);
+        video = null;
+      }
+      
+      if (!video) {
+        setCORSHeaders(req, res);
+        return res.status(404).send(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Video Not Found</title>
+            <style>
+              body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+              h1 { color: #e74c3c; }
+            </style>
+          </head>
+          <body>
+            <h1>Video Not Found</h1>
+            <p>The video you are looking for could not be found.</p>
+          </body>
+          </html>
+        `);
+      }
+      
+      // Build stream URL
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const streamUrl = `${baseUrl}/s/${lookupId}`;
+      const videoTitle = video.title || 'Video Player';
+      
+      // Get captions URL if available
+      let captionsUrl = '';
+      if (video.captions && Array.isArray(video.captions) && video.captions.length > 0) {
+        const firstCaption = video.captions[0];
+        if (firstCaption.url) {
+          captionsUrl = firstCaption.url;
+        }
+      }
+      
+      // Generate HTML with Video.js player
+      const html = generateVideoPlayerHTML(streamUrl, captionsUrl, videoTitle);
+      
+      setCORSHeaders(req, res);
+      res.setHeader('Content-Type', 'text/html');
+      return res.send(html);
+    }
+    
+    // Continue with video streaming for video player requests (has Range header or video MIME type)
+    console.log('📹 Video player request detected, serving video file directly');
     
     // If this is a short slug route (/s/:slug), check redirect_slug first
     // Otherwise, check videoId first (for /api/videos/:videoId/stream)

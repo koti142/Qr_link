@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Upload, FileText, CheckCircle, XCircle, AlertCircle, Loader2, Video, FileCheck, AlertTriangle, Clock, History, RefreshCw, Info, Sparkles } from 'lucide-react';
+import { Upload, FileText, CheckCircle, XCircle, AlertCircle, Loader2, Video, FileCheck, AlertTriangle, Clock, History, RefreshCw, Info, Sparkles, Trash2, Square, CheckSquare2 } from 'lucide-react';
 import api from '../services/api';
 
 function BulkUpload() {
@@ -9,6 +9,8 @@ function BulkUpload() {
   const [fileName, setFileName] = useState('');
   const [uploadHistory, setUploadHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [selectedItems, setSelectedItems] = useState(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchUploadHistory();
@@ -185,6 +187,68 @@ function BulkUpload() {
             {status}
           </span>
         );
+    }
+  };
+
+  const handleSelectItem = (id) => {
+    const newSelected = new Set(selectedItems);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedItems(newSelected);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedItems.size === uploadHistory.length) {
+      setSelectedItems(new Set());
+    } else {
+      setSelectedItems(new Set(uploadHistory.map(item => item.id)));
+    }
+  };
+
+  const handleDeleteItem = async (id, event) => {
+    event.stopPropagation();
+    if (!window.confirm('Are you sure you want to delete this upload history record?')) {
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      await api.delete(`/videos/upload-history/${id}`);
+      await fetchUploadHistory();
+      setSelectedItems(new Set());
+    } catch (error) {
+      console.error('Failed to delete upload history:', error);
+      alert(error.response?.data?.error || 'Failed to delete upload history record');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedItems.size === 0) {
+      alert('Please select at least one item to delete');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete ${selectedItems.size} upload history record(s)?`)) {
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      const ids = Array.from(selectedItems);
+      await api.delete('/videos/upload-history', { data: { ids } });
+      await fetchUploadHistory();
+      setSelectedItems(new Set());
+      alert(`${ids.length} record(s) deleted successfully`);
+    } catch (error) {
+      console.error('Failed to bulk delete upload history:', error);
+      alert(error.response?.data?.error || 'Failed to delete upload history records');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -434,7 +498,7 @@ function BulkUpload() {
           {/* Right Column - Upload History */}
           <div className="xl:col-span-1">
             <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-6 sticky top-6">
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-purple-100 rounded-lg">
                     <History className="w-5 h-5 text-purple-600" />
@@ -451,6 +515,40 @@ function BulkUpload() {
                 </button>
               </div>
 
+              {/* Bulk Actions */}
+              {uploadHistory.length > 0 && (
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <button
+                    onClick={handleSelectAll}
+                    className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                    title={selectedItems.size === uploadHistory.length ? 'Deselect all' : 'Select all'}
+                  >
+                    {selectedItems.size === uploadHistory.length ? (
+                      <CheckSquare2 className="w-4 h-4 text-blue-600" />
+                    ) : (
+                      <Square className="w-4 h-4 text-gray-600" />
+                    )}
+                    <span className="text-gray-700">
+                      {selectedItems.size === uploadHistory.length ? 'Deselect All' : 'Select All'}
+                    </span>
+                  </button>
+                  {selectedItems.size > 0 && (
+                    <button
+                      onClick={handleBulkDelete}
+                      disabled={deleting}
+                      className="flex items-center gap-2 px-3 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {deleting ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                      <span>Delete ({selectedItems.size})</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
               {loadingHistory ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -464,14 +562,47 @@ function BulkUpload() {
               ) : (
                 <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto pr-2 custom-scrollbar">
                   {uploadHistory.map((item) => (
-                    <div key={item.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors">
+                    <div 
+                      key={item.id} 
+                      className={`p-4 border rounded-lg transition-colors cursor-pointer ${
+                        selectedItems.has(item.id) 
+                          ? 'bg-blue-50 border-blue-300 hover:bg-blue-100' 
+                          : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                      }`}
+                      onClick={() => handleSelectItem(item.id)}
+                    >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectItem(item.id);
+                            }}
+                            className="flex-shrink-0"
+                          >
+                            {selectedItems.has(item.id) ? (
+                              <CheckSquare2 className="w-4 h-4 text-blue-600" />
+                            ) : (
+                              <Square className="w-4 h-4 text-gray-400" />
+                            )}
+                          </button>
                           <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
                           <span className="font-medium text-gray-900 text-sm truncate" title={item.file_name}>
                             {item.file_name}
                           </span>
                         </div>
+                        <button
+                          onClick={(e) => handleDeleteItem(item.id, e)}
+                          disabled={deleting}
+                          className="flex-shrink-0 p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Delete this record"
+                        >
+                          {deleting ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
                       </div>
                       <div className="text-xs text-gray-500 mb-3">{formatFileSize(item.file_size)}</div>
                       <div className="flex items-center gap-2 text-xs text-gray-600 mb-3">

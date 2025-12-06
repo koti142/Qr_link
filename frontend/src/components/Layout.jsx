@@ -9,9 +9,25 @@ function Layout() {
   const isLogin = location.pathname === '/admin/login';
   const isStreaming = location.pathname.startsWith('/stream');
   const isVideoView = location.pathname.startsWith('/video/');
+  // Check if it's a short URL route (not starting with /admin, /video, /stream, etc.)
+  // Check if it's a short URL route (single segment path that's not a known route)
+  // Short URLs are like /7ipakfbaky (single segment, not starting with /admin, /video, /stream, etc.)
+  const pathSegments = location.pathname.split('/').filter(Boolean);
+  const isShortUrl = pathSegments.length === 1 && 
+                     !isAdmin && 
+                     !isStreaming && 
+                     !isVideoView && 
+                     location.pathname !== '/' && 
+                     !location.pathname.startsWith('/diagnostic') &&
+                     location.pathname !== '/admin';
   const showSidebar = (isAdmin && !isLogin) || isVideoView;
 
   if (isEmbed) {
+    return <Outlet />;
+  }
+
+  // For short URL routes, don't show navbar or sidebar
+  if (isShortUrl) {
     return <Outlet />;
   }
 
@@ -25,15 +41,7 @@ function Layout() {
         <Outlet />
       </main>
 
-      {!isAdmin && (
-        <footer className="bg-white border-t border-blue-200 mt-12">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <p className="text-center text-gray-500">
-              © 2024 Video Delivery System
-            </p>
-          </div>
-        </footer>
-      )}
+      
     </div>
   );
 }
