@@ -221,70 +221,74 @@ function PublicVideoPage() {
   };
 
   return (
-    <div className={`w-full px-4 sm:px-6 lg:px-8 py-8 ${isEmbed ? '' : 'min-h-screen'}`}>
+    <div className={`w-full px-4 sm:px-6 lg:px-8 py-8 ${isEmbed ? '' : 'min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50'}`}>
       <div className="w-full grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-blue-100 aspect-video">
-            <VideoPlayer src={streamUrl} captions={video.captions || []} />
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-blue-100 max-w-4xl mx-auto">
+            <VideoPlayer 
+              src={streamUrl} 
+              captions={video.captions || []} 
+              videoId={video.video_id || videoId}
+            />
           </div>
           
           {/* Video Title Section */}
-          <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl shadow-md p-6 border border-blue-200">
-            <h1 className="text-4xl font-bold mb-4 text-gray-900 bg-white px-4 py-3 rounded-lg shadow-sm border border-blue-200">
+          <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
+            <h1 className="text-3xl font-bold mb-4 text-slate-900">
               {video.title || 'Untitled Video'}
             </h1>
             
             {/* Description */}
             {video.description && (
-              <div className="mb-6 bg-white rounded-lg p-4 border border-purple-200 shadow-sm">
-                <h3 className="text-sm font-semibold text-purple-700 mb-2 uppercase tracking-wide">Description</h3>
-                <p className="text-gray-800 text-lg leading-relaxed">{video.description}</p>
+              <div className="mb-6 bg-slate-50 rounded-xl p-4 border border-slate-200">
+                <h3 className="text-sm font-semibold text-slate-700 mb-2 uppercase tracking-wide">Description</h3>
+                <p className="text-slate-800 text-base leading-relaxed">{video.description}</p>
               </div>
             )}
           </div>
 
           {/* Course Information Section */}
-          <div className="mt-6 bg-white rounded-xl shadow-md p-6 border border-blue-200 w-full">
-            <h2 className="text-2xl font-bold mb-6 text-gray-800 flex items-center gap-2">
-              <span className="w-1 h-8 bg-gradient-to-b from-blue-400 to-purple-400 rounded-full"></span>
+          <div className="mt-6 bg-white rounded-2xl shadow-lg p-6 border border-slate-200 w-full">
+            <h2 className="text-2xl font-bold mb-6 text-slate-900 flex items-center gap-2">
+              <span className="w-1 h-8 bg-gradient-to-b from-blue-500 to-indigo-500 rounded-full"></span>
               Course Information
             </h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
               {video.course && (
-                <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                  <span className="text-xs font-semibold text-blue-600 uppercase tracking-wide block mb-1">Course</span>
-                  <span className="text-lg font-bold text-blue-900">{video.course}</span>
+                <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+                  <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide block mb-1">Course</span>
+                  <span className="text-base font-bold text-slate-900">{video.course}</span>
                 </div>
               )}
               {video.grade && (
-                <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-                  <span className="text-xs font-semibold text-green-600 uppercase tracking-wide block mb-1">Grade</span>
-                  <span className="text-lg font-bold text-green-900">{video.grade}</span>
+                <div className="bg-green-50 rounded-xl p-4 border border-green-200">
+                  <span className="text-xs font-semibold text-green-700 uppercase tracking-wide block mb-1">Grade</span>
+                  <span className="text-base font-bold text-slate-900">{video.grade}</span>
                 </div>
               )}
               {video.lesson && (
-                <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
-                  <span className="text-xs font-semibold text-purple-600 uppercase tracking-wide block mb-1">Lesson</span>
-                  <span className="text-lg font-bold text-purple-900">{video.lesson}</span>
+                <div className="bg-teal-50 rounded-xl p-4 border border-teal-200">
+                  <span className="text-xs font-semibold text-teal-700 uppercase tracking-wide block mb-1">Lesson</span>
+                  <span className="text-base font-bold text-slate-900">{video.lesson}</span>
                 </div>
               )}
               {video.module && (
-                <div className="bg-pink-50 rounded-lg p-4 border border-pink-200">
-                  <span className="text-xs font-semibold text-pink-600 uppercase tracking-wide block mb-1">Module</span>
-                  <span className="text-lg font-bold text-pink-900">{video.module}</span>
+                <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-200">
+                  <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wide block mb-1">Module</span>
+                  <span className="text-base font-bold text-slate-900">{video.module}</span>
                 </div>
               )}
               {video.activity && (
-                <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
-                  <span className="text-xs font-semibold text-orange-600 uppercase tracking-wide block mb-1">Activity</span>
-                  <span className="text-lg font-bold text-orange-900">{video.activity}</span>
+                <div className="bg-amber-50 rounded-xl p-4 border border-amber-200">
+                  <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide block mb-1">Activity</span>
+                  <span className="text-base font-bold text-slate-900">{video.activity}</span>
                 </div>
               )}
               {video.topic && (
-                <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-200 md:col-span-2">
-                  <span className="text-xs font-semibold text-yellow-600 uppercase tracking-wide block mb-1">Topic</span>
-                  <span className="text-lg font-bold text-yellow-900">{video.topic}</span>
+                <div className="bg-cyan-50 rounded-xl p-4 border border-cyan-200 md:col-span-2">
+                  <span className="text-xs font-semibold text-cyan-700 uppercase tracking-wide block mb-1">Topic</span>
+                  <span className="text-base font-bold text-slate-900">{video.topic}</span>
                 </div>
               )}
             </div>
@@ -325,9 +329,9 @@ function PublicVideoPage() {
           </div>
 
           {video.relatedVideos && video.relatedVideos.length > 0 && (
-            <div className="mt-6 bg-white rounded-xl shadow-md p-6 border border-blue-200">
-              <h2 className="text-2xl font-bold mb-6 text-gray-800 flex items-center gap-2">
-                <span className="w-1 h-8 bg-gradient-to-b from-blue-400 to-purple-400 rounded-full"></span>
+            <div className="mt-6 bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
+              <h2 className="text-2xl font-bold mb-6 text-slate-900 flex items-center gap-2">
+                <span className="w-1 h-8 bg-gradient-to-b from-blue-500 to-indigo-500 rounded-full"></span>
                 Related Videos
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -335,17 +339,17 @@ function PublicVideoPage() {
                   <a
                     key={related.id}
                     href={`/video/${related.video_id}`}
-                    className="p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-200 hover:shadow-lg hover:border-blue-300 transition-all duration-300"
+                    className="p-4 bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl border border-blue-200 hover:shadow-lg hover:border-blue-300 transition-all duration-300"
                   >
-                    <h3 className="font-bold text-lg text-gray-900 mb-2">{related.title}</h3>
+                    <h3 className="font-bold text-base text-slate-900 mb-2">{related.title}</h3>
                     <div className="flex flex-wrap gap-2 text-sm">
                       {related.grade && (
-                        <span className="px-2 py-1 bg-green-100 text-green-700 rounded-md font-medium">
+                        <span className="px-2 py-1 bg-green-100 text-green-700 rounded-lg font-medium">
                           {related.grade}
                         </span>
                       )}
                       {related.lesson && (
-                        <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-md font-medium">
+                        <span className="px-2 py-1 bg-teal-100 text-teal-700 rounded-lg font-medium">
                           {related.lesson}
                         </span>
                       )}
@@ -361,15 +365,15 @@ function PublicVideoPage() {
           {!isEmbed && (
             <>
               {/* QR Code - Compact container */}
-              <div className="bg-white p-4 rounded-xl shadow-md border border-blue-200 flex flex-col">
+              <div className="bg-white p-4 rounded-2xl shadow-lg border border-slate-200 flex flex-col">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                    <span className="w-1 h-6 bg-gradient-to-b from-blue-400 to-purple-400 rounded-full"></span>
+                  <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    <span className="w-1 h-6 bg-gradient-to-b from-blue-500 to-indigo-500 rounded-full"></span>
                     QR Code
                   </h3>
                   <button
                     onClick={handleDownloadQRCode}
-                    className="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-xs shadow-sm transition-colors flex items-center gap-1"
+                    className="px-2.5 py-1.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium text-xs shadow-sm transition-colors flex items-center gap-1"
                     title="Download QR Code"
                   >
                     <Download className="w-3.5 h-3.5" />
@@ -380,16 +384,16 @@ function PublicVideoPage() {
               </div>
               
               {/* Streaming URL - Match header/description block height */}
-              <div className="bg-white rounded-xl shadow-md p-6 border border-blue-200 h-fit">
+              <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200 h-fit">
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                    <span className="w-1 h-6 bg-gradient-to-b from-blue-400 to-purple-400 rounded-full"></span>
+                  <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                    <span className="w-1 h-6 bg-gradient-to-b from-blue-500 to-indigo-500 rounded-full"></span>
                     Streaming URL
                   </h3>
                   <div className="flex gap-2">
                     <button
                       onClick={handleDownloadPDF}
-                      className="px-3 py-2 bg-blue-200 text-blue-800 rounded-lg hover:bg-blue-300 font-medium text-xs shadow-sm transition-colors flex items-center gap-1"
+                      className="px-3 py-2 bg-blue-100 text-blue-700 rounded-xl hover:bg-blue-200 font-medium text-xs shadow-sm transition-colors flex items-center gap-1"
                       title="Download PDF"
                     >
                       <Download className="w-4 h-4" />
@@ -397,7 +401,7 @@ function PublicVideoPage() {
                     </button>
                     <button
                       onClick={handlePrint}
-                      className="px-3 py-2 bg-purple-200 text-purple-800 rounded-lg hover:bg-purple-300 font-medium text-xs shadow-sm transition-colors flex items-center gap-1"
+                      className="px-3 py-2 bg-indigo-100 text-indigo-700 rounded-xl hover:bg-indigo-200 font-medium text-xs shadow-sm transition-colors flex items-center gap-1"
                       title="Print"
                     >
                       <Printer className="w-4 h-4" />
@@ -450,7 +454,7 @@ function PublicVideoPage() {
                   <a
                     href={`/stream/${video.video_id}`}
                     target="_blank"
-                    className="block px-4 py-3 bg-gradient-to-r from-blue-200 to-purple-200 text-blue-900 rounded-lg hover:from-blue-300 hover:to-purple-300 font-semibold text-sm text-center shadow-sm transition-all duration-300"
+                    className="block px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 font-semibold text-sm text-center shadow-lg transition-all duration-300"
                   >
                     Open Stream Page
                   </a>

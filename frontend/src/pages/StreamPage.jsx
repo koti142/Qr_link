@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Loader2 } from 'lucide-react';
 import VideoPlayer from '../components/VideoPlayer';
 import api from '../services/api';
 
@@ -20,7 +20,6 @@ function StreamPage() {
 
     const fetchVideo = async () => {
       try {
-        // First, try to get video by videoId
         let response;
         try {
           response = await api.get(`/videos/${videoId}`);
@@ -30,21 +29,17 @@ function StreamPage() {
             return;
           }
         } catch (err) {
-          // If not found, try to check if it's a short slug
           console.log('Video not found by ID, checking if it\'s a short slug...');
         }
 
-        // If video not found, try to get redirect info (might be a short slug)
         try {
           const redirectResponse = await api.get(`/videos/redirect-info/${videoId}`);
           if (redirectResponse.data && redirectResponse.data.target_url) {
-            // Extract videoId from target URL (e.g., /stream/videoId)
             const targetUrl = redirectResponse.data.target_url;
             const url = new URL(targetUrl);
             const pathParts = url.pathname.split('/');
             const actualVideoId = pathParts[pathParts.length - 1];
             
-            // Fetch video with actual videoId
             response = await api.get(`/videos/${actualVideoId}`);
             if (response.data) {
               setVideo(response.data);
@@ -56,7 +51,6 @@ function StreamPage() {
           console.log('Redirect lookup failed:', redirectErr);
         }
 
-        // If we get here, video not found
         setError('Video not found');
         setLoading(false);
       } catch (err) {
@@ -71,10 +65,16 @@ function StreamPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-black">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto"></div>
-          <p className="mt-4 text-white">Loading video...</p>
+          <div className="relative">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent mx-auto mb-4"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Loader2 className="w-8 h-8 text-blue-600 animate-pulse" />
+            </div>
+          </div>
+          <p className="mt-6 text-slate-900 text-lg font-medium">Loading video...</p>
+          <p className="mt-2 text-slate-600 text-sm">Please wait while we prepare your content</p>
         </div>
       </div>
     );
@@ -82,163 +82,126 @@ function StreamPage() {
 
   if (error || !video) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-black">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-red-500 mb-2">Error</h1>
-          <p className="text-white mb-4">{error || 'Video not found'}</p>
-          <p className="text-gray-400 text-sm">Please check the video link or contact support if the problem persists.</p>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8 max-w-md w-full text-center">
+          <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <AlertCircle className="w-10 h-10 text-red-600" />
+          </div>
+          <h1 className="text-3xl font-bold text-slate-900 mb-3">Video Not Found</h1>
+          <p className="text-slate-600 mb-6">{error || 'The video you are looking for could not be found.'}</p>
+          <p className="text-slate-500 text-sm">Please check the video link or contact support if the problem persists.</p>
         </div>
       </div>
     );
   }
 
-  // Helper function to detect mock URLs - MUST be comprehensive and work correctly
   const isMockUrl = (url) => {
     if (!url || typeof url !== 'string') return false;
     const urlLower = url.toLowerCase();
-    // Check for all known mock URL patterns
     return urlLower.includes('your-account.r2.cloudflarestorage.com') ||
            urlLower.includes('r2.cloudflarestorage.com') ||
            urlLower.includes('mock-cloudflare.example.com') ||
            (urlLower.includes('example.com') && !urlLower.includes('pub-')) ||
            urlLower.includes('test.cloudflare') ||
            (urlLower.includes('cloudflare.com/') && !urlLower.includes('pub-')) ||
-           urlLower.includes('cloudflarestorage.com'); // Catch all cloudflarestorage.com URLs
+           urlLower.includes('cloudflarestorage.com');
   };
   
-  // Check if video has a Cloudflare URL (remote URL) - check BOTH fields
   const cloudflareUrl = video.streaming_url || video.file_path;
   const isCloudflareUrl = cloudflareUrl && (cloudflareUrl.startsWith('http://') || cloudflareUrl.startsWith('https://'));
-  
-  // ALWAYS check for mock URLs first, regardless of isCloudflareUrl
-  // This ensures we catch mock URLs even if they're in file_path instead of streaming_url
   const isMock = cloudflareUrl ? isMockUrl(cloudflareUrl) : false;
-  
-  // Log for debugging
-  console.log('[StreamPage] URL Analysis:', {
-    streaming_url: video.streaming_url,
-    file_path: video.file_path,
-    cloudflareUrl,
-    isCloudflareUrl,
-    isMock,
-    video_id: video.video_id,
-    redirect_slug: video.redirect_slug
-  });
   
   let streamingUrl;
   let urlError = null;
   
-  // ALWAYS convert mock URLs to local streaming URLs - never pass mock URLs to VideoPlayer
   if (isMock) {
-    // Mock URL detected - ALWAYS use local streaming endpoint (never pass mock URL to VideoPlayer)
-    console.log('[StreamPage] Mock Cloudflare URL detected, converting to local streaming:', cloudflareUrl);
-    
-    // Use the streaming endpoint URL for local files
     const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
     const streamIdentifier = video.redirect_slug || video.video_id;
     streamingUrl = `${backendUrl}/s/${streamIdentifier}`;
-    console.log('[StreamPage] Converted to local streaming endpoint:', streamingUrl);
-    // Don't set urlError - work silently
   } else if (isCloudflareUrl && !isMock) {
-    // Use REAL Cloudflare URL directly - this should work for actual Cloudflare storage
-    // But double-check it's not a mock URL before using
     if (isMockUrl(cloudflareUrl)) {
-      // Safety check: if somehow we got here but it's still a mock URL, use local
-      console.warn('[StreamPage] Safety check: Detected mock URL in real Cloudflare branch, using local fallback');
       const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
       const streamIdentifier = video.redirect_slug || video.video_id;
       streamingUrl = `${backendUrl}/s/${streamIdentifier}`;
     } else {
       streamingUrl = cloudflareUrl;
-      console.log('[StreamPage] Using real Cloudflare URL directly:', streamingUrl);
     }
   } else {
-    // For local files (no URL), use local streaming endpoint
     const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
     const streamIdentifier = video.redirect_slug || video.video_id;
     streamingUrl = `${backendUrl}/s/${streamIdentifier}`;
-    console.log('[StreamPage] Using local streaming endpoint:', streamingUrl);
   }
   
-  // Final safety check: NEVER pass a mock URL to VideoPlayer
   if (streamingUrl && isMockUrl(streamingUrl)) {
-    console.error('[StreamPage] CRITICAL: Attempted to pass mock URL to VideoPlayer! Converting to local URL.');
     const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
     const streamIdentifier = video.redirect_slug || video.video_id;
     streamingUrl = `${backendUrl}/s/${streamIdentifier}`;
-    console.log('[StreamPage] Final conversion to local URL:', streamingUrl);
   }
-  
-  // Log final streaming URL for debugging
-  console.log('[StreamPage] Final streaming URL that will be passed to VideoPlayer:', streamingUrl);
-  
-  console.log('Video ID:', video.video_id);
-  console.log('Short Slug:', video.redirect_slug);
-  console.log('Streaming URL:', streamingUrl);
-  console.log('Is Cloudflare URL:', isCloudflareUrl);
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-4">
-      <div className="w-full max-w-7xl">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {streamingUrl && video ? (
-          <>
-            {/* Video Title */}
+          <div className="space-y-6">
+            {/* Video Title Section */}
             {video.title && (
-              <div className="mb-4 text-center">
-                <h1 className="text-2xl font-bold text-white mb-2">{video.title}</h1>
+              <div className="text-center mb-6">
+                <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-3">
+                  {video.title}
+                </h1>
                 {video.description && (
-                  <p className="text-gray-300 text-sm max-w-3xl mx-auto">{video.description}</p>
+                  <p className="text-slate-600 text-lg max-w-3xl mx-auto leading-relaxed">
+                    {video.description}
+                  </p>
                 )}
               </div>
             )}
             
-            {/* URL Error Warning - Only show for real errors, not mock URLs (they auto-fallback) */}
-            {urlError && !isMock && (
-              <div className="mb-4 p-5 bg-yellow-900 border-2 border-yellow-600 rounded-lg">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-6 h-6 text-yellow-400 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="font-bold text-yellow-200 mb-2">Streaming Notice</p>
-                    <p className="text-yellow-100 text-sm mb-3">{urlError}</p>
-                  </div>
-                </div>
+            {/* Video Player Container */}
+            <div className="bg-white rounded-2xl overflow-hidden shadow-xl border border-slate-200">
+              <div className="aspect-video w-full">
+                <VideoPlayer 
+                  src={streamingUrl} 
+                  captions={video.captions || []} 
+                  autoplay={true}
+                  videoId={video.video_id || videoId}
+                />
               </div>
-            )}
-            
-            {/* Stream Error (from backend) - using urlError instead of streamError */}
-            {urlError && (
-              <div className="mb-4 p-5 bg-red-900 border-2 border-red-600 rounded-lg">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-6 h-6 text-red-400 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="font-bold text-red-200 mb-2">Streaming Error</p>
-                    <p className="text-red-100 text-sm">{urlError}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Video Player */}
-            <div className="bg-black rounded-lg overflow-hidden shadow-2xl">
-              <VideoPlayer 
-                src={streamingUrl} 
-                captions={video.captions || []} 
-                autoplay={true}
-              />
             </div>
             
-            {playerError && (
-              <div className="mt-4 p-4 bg-red-900 text-white rounded">
-                <p className="font-bold">Error loading video:</p>
-                <p className="mt-2">{playerError}</p>
-                <p className="text-sm mt-3 text-gray-300">Please try refreshing the page or contact support if the problem persists.</p>
+            {/* Error Messages */}
+            {urlError && !isMock && (
+              <div className="bg-yellow-50 border-l-4 border-yellow-500 rounded-xl p-5">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-bold text-yellow-800 mb-2">Streaming Notice</p>
+                    <p className="text-yellow-700 text-sm">{urlError}</p>
+                  </div>
+                </div>
               </div>
             )}
-          </>
+            
+            {playerError && (
+              <div className="bg-red-50 border-l-4 border-red-500 rounded-xl p-5">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-bold text-red-800 mb-2">Error Loading Video</p>
+                    <p className="text-red-700 text-sm mb-3">{playerError}</p>
+                    <p className="text-red-600 text-xs">Please try refreshing the page or contact support if the problem persists.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         ) : (
-          <div className="text-white text-center">
-            <p>Streaming URL not available</p>
-            <p className="text-sm mt-2 text-gray-400">Please contact support if this issue persists.</p>
+          <div className="text-center py-16">
+            <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-8 max-w-md mx-auto">
+              <AlertCircle className="w-16 h-16 text-slate-400 mx-auto mb-4" />
+              <p className="text-slate-900 text-lg font-medium mb-2">Streaming URL Not Available</p>
+              <p className="text-slate-600 text-sm">Please contact support if this issue persists.</p>
+            </div>
           </div>
         )}
       </div>
@@ -247,4 +210,3 @@ function StreamPage() {
 }
 
 export default StreamPage;
-

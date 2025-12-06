@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Player</title>
+    
+    <!-- Video.js CSS -->
+    <link href="https://vjs.zencdn.net/8.6.1/video-js.css" rel="stylesheet" />
+    
+    <!-- Video.js HTTP Streaming (HLS) Plugin CSS -->
+    <link href="https://unpkg.com/@videojs/http-streaming@3.0.2/dist/videojs-http-streaming.css" rel="stylesheet" />
+    
+    <style>
+        /* Custom Styles */
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #f5f5f5;
+        }
+        
+        .video-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* 16:9 Aspect Ratio Container */
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            padding-bottom: 56.25%; /* 16:9 Aspect Ratio */
+            height: 0;
+            overflow: hidden;
+        }
+        
+        .video-wrapper video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* Video.js Custom Styling */
+        .video-js {
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* Hide download button */
+        .video-js .vjs-download-button {
+            display: none !important;
+        }
+        
+        /* Custom control bar styling */
+        .video-js .vjs-control-bar {
+            background: rgba(0, 0, 0, 0.8);
+            height: 50px;
+        }
+        
+        .video-js .vjs-button {
+            color: #fff;
+        }
+        
+        .video-js .vjs-button:hover {
+            color: #00d4ff;
+        }
+        
+        /* Quality selector styling */
+        .video-js .vjs-menu-button-popup .vjs-menu {
+            background: rgba(0, 0, 0, 0.9);
+            border: 1px solid #333;
+        }
+        
+        .video-js .vjs-menu li {
+            color: #fff;
+        }
+        
+        .video-js .vjs-menu li:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            
+            .video-js .vjs-control-bar {
+                height: 45px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="video-container">
+        <div class="video-wrapper">
+            <video
+                id="video-player"
+                class="video-js vjs-default-skin vjs-big-play-centered"
+                controls
+                preload="auto"
+                data-setup='{}'
+            >
+                <!-- HLS Video Source -->
+                <source src="STREAM_URL" type="application/x-mpegURL" />
+                
+                <!-- Captions -->
+                <track kind="captions" src="CAPTIONS_URL" srclang="en" label="English" default />
+                
+                <p class="vjs-no-js">
+                    To view this video please enable JavaScript, and consider upgrading to a web browser that
+                    <a href="https://videojs.com/html5-video-support/" target="_blank">supports HTML5 video</a>.
+                </p>
+            </video>
+        </div>
+    </div>
+
+    <!-- Video.js Core -->
+    <script src="https://vjs.zencdn.net/8.6.1/video.min.js"></script>
+    
+    <!-- Video.js HTTP Streaming (HLS) Plugin -->
+    <script src="https://unpkg.com/@videojs/http-streaming@3.0.2/dist/videojs-http-streaming.min.js"></script>
+    
+    <!-- Quality Selector Plugin (for HLS quality switching) -->
+    <script src="https://cdn.jsdelivr.net/npm/videojs-contrib-quality-levels@3.0.0/dist/videojs-contrib-quality-levels.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/videojs-hls-quality-selector@1.1.4/dist/videojs-hls-quality-selector.min.js"></script>
+
+    <script>
+        // Configuration
+        const STREAM_URL = "https://example.com/stream.m3u8"; // Replace with your HLS stream URL
+        const CAPTIONS_URL = "captions.vtt"; // Replace with your captions file URL
+
+        // Initialize Video.js player
+        const player = videojs('video-player', {
+            fluid: true,
+            responsive: true,
+            aspectRatio: '16:9',
+            playbackRates: [0.5, 1, 1.25, 1.5, 2],
+            controls: true,
+            preload: 'auto',
+            html5: {
+                vhs: {
+                    overrideNative: true,
+                    enableLowInitialPlaylist: true,
+                    smoothQualityChange: true,
+                    handleManifestRedirects: true
+                },
+                nativeVideoTracks: false,
+                nativeAudioTracks: false,
+                nativeTextTracks: false
+            },
+            plugins: {
+                httpStreaming: {
+                    overrideNative: true
+                }
+            }
+        });
+
+        // Set video source
+        player.src({
+            src: STREAM_URL,
+            type: 'application/x-mpegURL'
+        });
+
+        // Add captions track
+        if (CAPTIONS_URL) {
+            player.addRemoteTextTrack({
+                kind: 'captions',
+                src: CAPTIONS_URL,
+                srclang: 'en',
+                label: 'English',
+                default: true
+            }, false);
+        }
+
+        // Initialize HLS Quality Selector
+        player.ready(function() {
+            // Enable HLS quality selector
+            if (player.qualityLevels) {
+                player.hlsQualitySelector({
+                    displayCurrentQuality: true,
+                    placementIndex: 1
+                });
+            }
+
+            // Disable right-click context menu
+            const videoElement = player.el().querySelector('video');
+            if (videoElement) {
+                videoElement.addEventListener('contextmenu', function(e) {
+                    e.preventDefault();
+                    return false;
+                });
+            }
+
+            // Disable picture-in-picture
+            if (videoElement && videoElement.disablePictureInPicture !== undefined) {
+                videoElement.disablePictureInPicture = true;
+            }
+
+            // Prevent keyboard shortcuts that could download video
+            document.addEventListener('keydown', function(e) {
+                // Disable Ctrl+S (Save)
+                if (e.ctrlKey && e.key === 's') {
+                    e.preventDefault();
+                    return false;
+                }
+                // Disable Ctrl+Shift+I (DevTools - could be used to inspect video source)
+                if (e.ctrlKey && e.shiftKey && e.key === 'I') {
+                    e.preventDefault();
+                    return false;
+                }
+            });
+
+            // Remove download attribute if present
+            if (videoElement) {
+                videoElement.removeAttribute('download');
+                videoElement.setAttribute('controlsList', 'nodownload');
+            }
+
+            console.log('Video.js player initialized with HLS streaming');
+        });
+
+        // Error handling
+        player.on('error', function() {
+            const error = player.error();
+            console.error('Video player error:', error);
+            
+            if (error) {
+                let errorMessage = 'An error occurred while playing the video.';
+                
+                switch(error.code) {
+                    case 1: // MEDIA_ERR_ABORTED
+                        errorMessage = 'Video playback was aborted.';
+                        break;
+                    case 2: // MEDIA_ERR_NETWORK
+                        errorMessage = 'Network error occurred while loading the video.';
+                        break;
+                    case 3: // MEDIA_ERR_DECODE
+                        errorMessage = 'Video decoding error occurred.';
+                        break;
+                    case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+                        errorMessage = 'Video format not supported.';
+                        break;
+                }
+                
+                console.error('Error details:', errorMessage);
+            }
+        });
+
+        // Log quality changes
+        player.on('loadedmetadata', function() {
+            if (player.qualityLevels && player.qualityLevels().length > 0) {
+                console.log('Available quality levels:', player.qualityLevels().length);
+                player.qualityLevels().forEach(function(level, index) {
+                    console.log(`Quality ${index}: ${level.height}p, ${level.bandwidth} bps`);
+                });
+            }
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (player) {
+                player.dispose();
+            }
+        });
+    </script>
+</body>
+</html>
+
+
+

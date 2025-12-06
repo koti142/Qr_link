@@ -232,9 +232,25 @@ export async function getAllVideos(filters = {}) {
     params.push(filters.status);
   }
   
+  // Don't filter by file_path - include all videos regardless of storage location
+  // This ensures videos in upload/, my-storage/, and other locations are all shown
   query += ' ORDER BY created_at DESC';
   
+  console.log('[getAllVideos] Query:', query);
+  console.log('[getAllVideos] Params:', params);
+  
   const [rows] = await pool.execute(query, params);
+  
+  console.log(`[getAllVideos] Found ${rows.length} videos`);
+  // Log file paths to verify upload/ videos are included
+  if (rows.length > 0) {
+    const uploadVideos = rows.filter(v => v.file_path && v.file_path.startsWith('upload/'));
+    console.log(`[getAllVideos] Videos in upload/ folder: ${uploadVideos.length}`);
+    if (uploadVideos.length > 0) {
+      console.log('[getAllVideos] Upload videos:', uploadVideos.map(v => ({ id: v.id, video_id: v.video_id, file_path: v.file_path, status: v.status })));
+    }
+  }
+  
   return rows;
 }
 

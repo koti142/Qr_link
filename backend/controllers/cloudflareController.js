@@ -24,43 +24,206 @@ export async function getMyStorageResources(req, res) {
       'SELECT * FROM cloudflare_resources ORDER BY created_at DESC'
     );
     
-    // Convert mock URLs to localhost URLs
-    const convertedResources = resources.map(resource => {
-      const mockUrlPatterns = [
-        'your-account.r2.cloudflarestorage.com',
-        'mock-cloudflare.example.com',
-        'test.cloudflare'
-      ];
-      
-      const isMockUrl = resource.cloudflare_url && mockUrlPatterns.some(pattern => 
-        resource.cloudflare_url.includes(pattern)
-      );
-      
-      if (isMockUrl && resource.cloudflare_key) {
-        // Extract video ID from storage path
-        // Format: my-storage/{videoId}_master.mp4 or cloudflare/.../{videoId}_master.mp4
-        const storagePath = resource.cloudflare_key.replace(/^cloudflare\//, 'my-storage/');
-        const videoIdMatch = storagePath.match(/(?:my-storage|cloudflare)\/([^/]+)_master\./);
-        
-        if (videoIdMatch) {
-          const videoId = videoIdMatch[1];
-          const localhostUrl = `${config.urls.base}/s/${videoId}`;
-          return {
-            ...resource,
-            cloudflare_url: localhostUrl,
-            original_url: resource.cloudflare_url, // Keep original for reference
-            converted: true
-          };
-        }
-      }
-      
-      return resource;
-    });
+    // Verify files exist in my-storage and filter out orphaned database entries
+    const backendDir = path.dirname(__dirname);
+    const basePath = path.dirname(backendDir);
+    let uploadPath = path.isAbsolute(config.upload.uploadPath) 
+      ? config.upload.uploadPath 
+      : path.resolve(basePath, config.upload.uploadPath);
     
-    res.json({ resources: convertedResources });
+    // Try multiple possible paths for my-storage folder
+    const possibleMyStoragePaths = [
+      path.join(uploadPath, 'my-storage'),
+      path.join(basePath, 'video-storage', 'my-storage'),
+      path.join(basePath, 'my-storage'),
+      path.join(basePath, 'video-storage', 'video-storage', 'my-storage'),
+    ];
+    
+    // Find the my-storage folder
+    let myStoragePath = null;
+    for (const tryPath of possibleMyStoragePaths) {
+      if (fsSync.existsSync(tryPath)) {
+        myStoragePath = tryPath;
+        console.log(`[My Storage] Found my-storage folder at: ${myStoragePath}`);
+        break;
+      }
+    }
+    
+    if (!myStoragePath) {
+      console.error('[My Storage] WARNING: my-storage folder not found in any of these paths:', possibleMyStoragePaths);
+    } else {
+      // List all files in my-storage for debugging
+      try {
+        const allFiles = fsSync.readdirSync(myStoragePath);
+        const videoFiles = allFiles.filter(f => 
+          f.endsWith('.mp4') || f.endsWith('.mov') || f.endsWith('.webm')
+        );
+        console.log(`[My Storage] Found ${videoFiles.length} video files in my-storage:`, videoFiles);
+      } catch (err) {
+        console.error('[My Storage] Error reading my-storage directory:', err.message);
+      }
+    }
+    
+    // Convert mock URLs to localhost URLs and verify files exist
+    const convertedResources = resources
+      .map(resource => {
+        const mockUrlPatterns = [
+          'your-account.r2.cloudflarestorage.com',
+          'mock-cloudflare.example.com',
+          'test.cloudflare'
+        ];
+        
+        const isMockUrl = resource.cloudflare_url && mockUrlPatterns.some(pattern => 
+          resource.cloudflare_url.includes(pattern)
+        );
+        
+        if (isMockUrl && resource.cloudflare_key) {
+          // Extract video ID from storage path
+          // Format: my-storage/{videoId}_master.mp4 or cloudflare/.../{videoId}_master.mp4
+          const storagePath = resource.cloudflare_key.replace(/^cloudflare\//, 'my-storage/');
+          const videoIdMatch = storagePath.match(/(?:my-storage|cloudflare)\/([^/]+)_master\./);
+          
+          if (videoIdMatch) {
+            const videoId = videoIdMatch[1];
+            const localhostUrl = `${config.urls.base}/s/${videoId}`;
+            return {
+              ...resource,
+              cloudflare_url: localhostUrl,
+              original_url: resource.cloudflare_url, // Keep original for reference
+              converted: true
+            };
+          }
+        }
+        
+        return resource;
+      })
+      .filter(resource => {
+        // If no my-storage path found, show all resources (might be remote URLs)
+        if (!myStoragePath) {
+          console.log(`[My Storage] No my-storage folder found, keeping resource ${resource.id} (might be remote)`);
+          return true;
+        }
+        
+        // If no cloudflare_key, keep it (might be remote URL)
+        if (!resource.cloudflare_key) {
+          console.log(`[My Storage] Resource ${resource.id} has no cloudflare_key, keeping it`);
+          return true;
+        }
+        
+        const storagePath = resource.cloudflare_key.replace(/^cloudflare\//, 'my-storage/');
+        const fileName = path.basename(storagePath);
+        
+        // Strategy 1: Check exact filename match
+        let filePath = path.join(myStoragePath, fileName);
+        let fileExists = fsSync.existsSync(filePath);
+        
+        // Strategy 2: If not found, try to find by video ID pattern
+        if (!fileExists && fileName) {
+          // Extract potential video ID from filename (e.g., VID1764744941896master_master.mp4 -> VID1764744941896)
+          const videoIdMatch = fileName.match(/^(VID\d+)/i);
+          if (videoIdMatch) {
+            const videoIdPrefix = videoIdMatch[1];
+            // Try to find any file starting with this prefix
+            try {
+              const files = fsSync.readdirSync(myStoragePath);
+              const matchingFile = files.find(f => 
+                f.startsWith(videoIdPrefix) && 
+                (f.endsWith('.mp4') || f.endsWith('.mov') || f.endsWith('.webm'))
+              );
+              if (matchingFile) {
+                filePath = path.join(myStoragePath, matchingFile);
+                fileExists = fsSync.existsSync(filePath);
+                console.log(`✓ Found file by video ID pattern: ${matchingFile} for resource ${resource.id} (${resource.file_name})`);
+              }
+            } catch (err) {
+              console.warn(`Error reading my-storage directory: ${err.message}`);
+            }
+          }
+        }
+        
+        // Strategy 3: Try matching by extracting numbers from cloudflare_key
+        if (!fileExists && resource.cloudflare_key) {
+          try {
+            const files = fsSync.readdirSync(myStoragePath);
+            // Extract all numbers from cloudflare_key
+            const numbers = resource.cloudflare_key.match(/\d+/g);
+            if (numbers && numbers.length > 0) {
+              // Try to find file containing these numbers
+              const matchingFile = files.find(f => {
+                const fNumbers = f.match(/\d+/g);
+                if (!fNumbers) return false;
+                // Check if any number from cloudflare_key appears in filename
+                return numbers.some(num => fNumbers.includes(num));
+              });
+              if (matchingFile) {
+                filePath = path.join(myStoragePath, matchingFile);
+                fileExists = fsSync.existsSync(filePath);
+                console.log(`✓ Found file by number matching: ${matchingFile} for resource ${resource.id} (${resource.file_name})`);
+              }
+            }
+          } catch (err) {
+            console.warn(`Error in number matching: ${err.message}`);
+          }
+        }
+        
+        // Strategy 4: Try fixed format: <video_id>.mp4 (if we can extract video_id)
+        if (!fileExists && resource.cloudflare_key) {
+          // Try to extract video ID from cloudflare_key or file_name
+          const possibleVideoId = resource.cloudflare_key
+            .replace(/^cloudflare\//, '')
+            .replace(/^my-storage\//, '')
+            .replace(/_master\.mp4$/, '')
+            .replace(/\.mp4$/, '')
+            .replace(/master$/, '');
+          
+          if (possibleVideoId) {
+            const fixedFormatPath = path.join(myStoragePath, `${possibleVideoId}.mp4`);
+            if (fsSync.existsSync(fixedFormatPath)) {
+              filePath = fixedFormatPath;
+              fileExists = true;
+              console.log(`✓ Found file using fixed format: ${possibleVideoId}.mp4 for resource ${resource.id}`);
+            }
+          }
+        }
+        
+        // Strategy 5: Try partial match by filename (without _master suffix)
+        if (!fileExists && fileName) {
+          const baseName = fileName.replace(/_master\.mp4$/, '.mp4').replace(/master\.mp4$/, '.mp4');
+          const partialPath = path.join(myStoragePath, baseName);
+          if (fsSync.existsSync(partialPath)) {
+            filePath = partialPath;
+            fileExists = true;
+            console.log(`✓ Found file by partial match: ${baseName} for resource ${resource.id}`);
+          }
+        }
+        
+        if (!fileExists) {
+          console.log(`⚠ Resource ${resource.id} (${resource.file_name}) - cloudflare_key: ${resource.cloudflare_key} - No matching file found. Tried: ${fileName}`);
+          // DON'T filter out - show it anyway so user can see what's in database
+          // return false; // This was filtering out resources
+        }
+        
+        // Show all resources, even if file not found (user can see what's in DB)
+        return true; // Changed from fileExists to true - show all resources
+      });
+    
+    console.log(`[My Storage] Returning ${convertedResources.length} resources (filtered from ${resources.length} total)`);
+    console.log(`[My Storage] My-storage path: ${myStoragePath || 'Not found'}`);
+    
+    res.json({ 
+      resources: convertedResources,
+      total: resources.length,
+      filtered: convertedResources.length,
+      myStoragePath: myStoragePath || 'Not found'
+    });
   } catch (error) {
     console.error('Error getting My Storage resources:', error);
-    res.status(500).json({ error: 'Failed to get My Storage resources', message: error.message });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to get My Storage resources', 
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 }
 
@@ -1212,6 +1375,104 @@ export async function deleteMyStorageResource(req, res) {
   try {
     const { id } = req.params;
     
+    // CRITICAL: Get resource info BEFORE deleting from database
+    const [resources] = await pool.execute(
+      'SELECT cloudflare_key, file_name FROM cloudflare_resources WHERE id = ?',
+      [id]
+    );
+    
+    if (resources.length === 0) {
+      return res.status(404).json({ error: 'Resource not found' });
+    }
+    
+    const resource = resources[0];
+    const cloudflareKey = resource.cloudflare_key;
+    const fileName = resource.file_name;
+    
+    // Delete from my-storage folder if file exists
+    let fileDeleted = false;
+    if (cloudflareKey) {
+      try {
+        const storagePath = cloudflareKey.replace(/^cloudflare\//, 'my-storage/');
+        const backendDir = path.dirname(__dirname);
+        const basePath = path.dirname(backendDir);
+        let uploadPath = path.isAbsolute(config.upload.uploadPath) 
+          ? config.upload.uploadPath 
+          : path.resolve(basePath, config.upload.uploadPath);
+        
+        // Try multiple possible paths for my-storage folder
+        const possibleMyStoragePaths = [
+          path.join(uploadPath, 'my-storage'),
+          path.join(basePath, 'video-storage', 'my-storage'),
+          path.join(basePath, 'my-storage'),
+          path.join(basePath, 'video-storage', 'video-storage', 'my-storage'),
+        ];
+        
+        // Try to find and delete the file
+        for (const myStoragePath of possibleMyStoragePaths) {
+          if (!fsSync.existsSync(myStoragePath)) {
+            continue;
+          }
+          
+          // Try exact path from cloudflare_key
+          let filePath = path.join(myStoragePath, path.basename(storagePath));
+          if (fsSync.existsSync(filePath)) {
+            await fs.unlink(filePath);
+            console.log(`✓ Deleted file from my-storage: ${filePath}`);
+            fileDeleted = true;
+            break;
+          }
+          
+          // Try with full storage path
+          filePath = path.join(uploadPath, storagePath);
+          if (fsSync.existsSync(filePath)) {
+            await fs.unlink(filePath);
+            console.log(`✓ Deleted file from my-storage: ${filePath}`);
+            fileDeleted = true;
+            break;
+          }
+          
+          // Try by filename
+          if (fileName) {
+            filePath = path.join(myStoragePath, fileName);
+            if (fsSync.existsSync(filePath)) {
+              await fs.unlink(filePath);
+              console.log(`✓ Deleted file from my-storage by filename: ${filePath}`);
+              fileDeleted = true;
+              break;
+            }
+          }
+          
+          // Try to find file by searching directory
+          try {
+            const files = await fs.readdir(myStoragePath);
+            const matchingFile = files.find(f => 
+              f === fileName || 
+              f === path.basename(storagePath) ||
+              (cloudflareKey && f.includes(path.basename(cloudflareKey)))
+            );
+            
+            if (matchingFile) {
+              filePath = path.join(myStoragePath, matchingFile);
+              await fs.unlink(filePath);
+              console.log(`✓ Deleted file from my-storage (found by search): ${filePath}`);
+              fileDeleted = true;
+              break;
+            }
+          } catch (searchError) {
+            console.warn(`Could not search my-storage directory ${myStoragePath}:`, searchError.message);
+          }
+        }
+        
+        if (!fileDeleted) {
+          console.warn(`⚠ File not found in my-storage for deletion. cloudflare_key: ${cloudflareKey}`);
+        }
+      } catch (fileError) {
+        console.error('Error deleting file from my-storage:', fileError.message);
+        // Continue with database deletion even if file deletion fails
+      }
+    }
+    
     // Delete from database
     const [result] = await pool.execute(
       'DELETE FROM cloudflare_resources WHERE id = ?',
@@ -1222,33 +1483,142 @@ export async function deleteMyStorageResource(req, res) {
       return res.status(404).json({ error: 'Resource not found' });
     }
     
-    // Delete from my-storage folder if file exists
-    try {
-      const [resources] = await pool.execute(
-        'SELECT cloudflare_key FROM cloudflare_resources WHERE id = ?',
-        [id]
-      );
-      if (resources.length > 0 && resources[0].cloudflare_key) {
-        const storagePath = resources[0].cloudflare_key.replace(/^cloudflare\//, 'my-storage/');
-        const backendDir = path.dirname(__dirname);
-        const basePath = path.dirname(backendDir);
-        const uploadPath = path.isAbsolute(config.upload.uploadPath) 
-          ? config.upload.uploadPath 
-          : path.resolve(basePath, config.upload.uploadPath);
-        const filePath = path.join(uploadPath, storagePath);
-        if (fsSync.existsSync(filePath)) {
-          await fs.unlink(filePath);
-          console.log(`Deleted file from my-storage: ${filePath}`);
-        }
-      }
-    } catch (fileError) {
-      console.warn('Error deleting file from my-storage:', fileError.message);
-    }
-    
-    res.json({ success: true, message: 'Resource deleted successfully' });
+    res.json({ 
+      success: true, 
+      message: 'Resource deleted successfully',
+      fileDeleted: fileDeleted
+    });
   } catch (error) {
     console.error('Error deleting My Storage resource:', error);
     res.status(500).json({ error: 'Failed to delete resource', message: error.message });
+  }
+}
+
+/**
+ * Cleanup orphaned files in my-storage (files without database entries)
+ */
+export async function cleanupOrphanedFiles(req, res) {
+  try {
+    const backendDir = path.dirname(__dirname);
+    const basePath = path.dirname(backendDir);
+    let uploadPath = path.isAbsolute(config.upload.uploadPath) 
+      ? config.upload.uploadPath 
+      : path.resolve(basePath, config.upload.uploadPath);
+    
+    // Try multiple possible paths for my-storage folder
+    const possibleMyStoragePaths = [
+      path.join(uploadPath, 'my-storage'),
+      path.join(basePath, 'video-storage', 'my-storage'),
+      path.join(basePath, 'my-storage'),
+      path.join(basePath, 'video-storage', 'video-storage', 'my-storage'),
+    ];
+    
+    // Find the my-storage folder
+    let myStoragePath = null;
+    for (const tryPath of possibleMyStoragePaths) {
+      if (fsSync.existsSync(tryPath)) {
+        myStoragePath = tryPath;
+        break;
+      }
+    }
+    
+    if (!myStoragePath) {
+      return res.status(404).json({ error: 'My Storage folder not found' });
+    }
+    
+    // Get all files in my-storage
+    const files = await fs.readdir(myStoragePath);
+    const videoFiles = files.filter(f => {
+      try {
+        return fsSync.statSync(path.join(myStoragePath, f)).isFile() && 
+               /\.(mp4|webm|mov|avi|m3u8)$/i.test(f);
+      } catch {
+        return false;
+      }
+    });
+    
+    console.log(`Found ${videoFiles.length} video files in my-storage`);
+    
+    // Get all cloudflare_key values from database
+    const [dbResources] = await pool.execute(
+      'SELECT cloudflare_key, file_name FROM cloudflare_resources'
+    );
+    
+    const dbPaths = new Set();
+    const dbFileNames = new Set();
+    dbResources.forEach(resource => {
+      if (resource.cloudflare_key) {
+        const storagePath = resource.cloudflare_key.replace(/^cloudflare\//, 'my-storage/');
+        dbPaths.add(path.basename(storagePath));
+        dbPaths.add(storagePath);
+      }
+      if (resource.file_name) {
+        dbFileNames.add(resource.file_name);
+      }
+    });
+    
+    console.log(`Found ${dbResources.length} resources in database`);
+    
+    // Find orphaned files (files without database entries)
+    const orphanedFiles = [];
+    for (const file of videoFiles) {
+      const filePath = path.join(myStoragePath, file);
+      const fileName = path.basename(file);
+      
+      // Check if file exists in database
+      const existsInDb = dbPaths.has(fileName) || 
+                        dbPaths.has(`my-storage/${fileName}`) ||
+                        dbFileNames.has(fileName) ||
+                        dbResources.some(r => {
+                          const key = r.cloudflare_key?.replace(/^cloudflare\//, 'my-storage/');
+                          return key && (key.endsWith(fileName) || path.basename(key) === fileName);
+                        });
+      
+      if (!existsInDb) {
+        orphanedFiles.push({
+          fileName: file,
+          filePath: filePath,
+          size: fsSync.statSync(filePath).size
+        });
+      }
+    }
+    
+    console.log(`Found ${orphanedFiles.length} orphaned files`);
+    
+    // Delete orphaned files if requested
+    const { deleteFiles } = req.query;
+    const deletedFiles = [];
+    
+    if (deleteFiles === 'true' || deleteFiles === '1') {
+      for (const orphan of orphanedFiles) {
+        try {
+          await fs.unlink(orphan.filePath);
+          deletedFiles.push(orphan.fileName);
+          console.log(`✓ Deleted orphaned file: ${orphan.fileName}`);
+        } catch (deleteError) {
+          console.error(`Error deleting orphaned file ${orphan.fileName}:`, deleteError.message);
+        }
+      }
+    }
+    
+    res.json({
+      success: true,
+      totalFiles: videoFiles.length,
+      dbResources: dbResources.length,
+      orphanedFiles: orphanedFiles.length,
+      orphanedFilesList: orphanedFiles.map(f => ({
+        fileName: f.fileName,
+        size: formatFileSize(f.size)
+      })),
+      deletedFiles: deletedFiles.length,
+      deletedFilesList: deletedFiles,
+      message: deleteFiles === 'true' || deleteFiles === '1' 
+        ? `Cleaned up ${deletedFiles.length} orphaned files`
+        : `Found ${orphanedFiles.length} orphaned files. Add ?deleteFiles=true to delete them.`
+    });
+  } catch (error) {
+    console.error('Error cleaning up orphaned files:', error);
+    res.status(500).json({ error: 'Failed to cleanup orphaned files', message: error.message });
   }
 }
 

@@ -11,7 +11,8 @@
     "check-db": "node scripts/checkDatabase.js",
     "generate-short-links": "node scripts/generateShortLinksForAllVideos.js",
     "migrate-cloudflare": "node scripts/runCloudflareMigration.js",
-    "migrate-csv-history": "node scripts/runCsvHistoryMigration.js"
+    "migrate-csv-history": "node scripts/runCsvHistoryMigration.js",
+    "migrate-video-replacements": "node scripts/runVideoReplacementsMigration.js"
   },
   "keywords": [],
   "author": "",
