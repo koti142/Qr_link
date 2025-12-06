@@ -1104,55 +1104,25 @@ export async function bulkUploadFromCSV(req, res) {
             console.warn(`[Row ${rowNumber}] Error checking for existing file:`, err.message);
           }
           
-          // For local files, copy to my-storage folder (like uploadToMyStorage)
-          // BUT: if file is already in my-storage, use it directly
+          // For local files, copy to backend/upload folder (same as regular upload)
           const backendDir = path.dirname(__dirname);
           const basePath = path.dirname(backendDir);
-          let uploadPath = path.isAbsolute(config.upload.uploadPath) 
-            ? config.upload.uploadPath 
-            : path.resolve(basePath, config.upload.uploadPath);
           
-          // Check if file is already in my-storage
-          const isAlreadyInMyStorage = fullVideoPath.includes(path.sep + 'my-storage' + path.sep) || 
-                                      fullVideoPath.includes('/my-storage/') ||
-                                      fullVideoPath.includes('\\my-storage\\');
+          // Create upload directory (backend/upload)
+          const uploadDir = path.join(backendDir, 'upload');
+          await ensureDirectoryExists(uploadDir);
           
-          if (isAlreadyInMyStorage) {
-            // File is already in my-storage, use it directly
-            targetFilePath = fullVideoPath;
-            // Extract relative path from full path
-            const myStorageIndex = fullVideoPath.indexOf('my-storage');
-            if (myStorageIndex !== -1) {
-              relativePath = fullVideoPath.substring(myStorageIndex);
-              // Normalize path separators
-              relativePath = relativePath.replace(/\\/g, '/');
-            } else {
-              // Fallback: construct relative path
-              const fileName = path.basename(fullVideoPath);
-              relativePath = `my-storage/${fileName}`;
-            }
-            console.log(`[Row ${rowNumber}] ✓ File already in my-storage, using: ${targetFilePath}`);
-            console.log(`[Row ${rowNumber}]   Relative path: ${relativePath}`);
-          } else {
-            // File needs to be copied to my-storage
-            // Use my-storage folder
-            const myStoragePath = path.join(uploadPath, 'my-storage');
-            await ensureDirectoryExists(myStoragePath);
-            
-            // Generate filename - ensure videoId doesn't already contain _master
-            // Clean videoId to remove any _master suffix that might have been included
-            let cleanVideoId = videoId.replace(/_master$/, '').replace(/_v\d+$/, '');
-            
-            const originalFileName = path.basename(fullVideoPath);
-            const fileExtension = path.extname(originalFileName) || '.mp4';
-            const newFileName = `${cleanVideoId}_master${fileExtension}`;
-            targetFilePath = path.join(myStoragePath, newFileName);
-            
-            console.log(`[Row ${rowNumber}] Generated filename: ${newFileName} from videoId: ${videoId}`);
-
-            // Set relative path for my-storage
-            relativePath = `my-storage/${newFileName}`;
-          }
+          // Generate unique filename using videoId (same format as regular upload)
+          const originalFileName = path.basename(fullVideoPath);
+          const fileExtension = path.extname(originalFileName) || '.mp4';
+          const fileName = `${videoId}${fileExtension}`;
+          targetFilePath = path.join(uploadDir, fileName);
+          
+          // Relative path from backend folder (for database)
+          relativePath = `upload/${fileName}`;
+          
+          console.log(`[Row ${rowNumber}] Saving to upload folder: ${targetFilePath}`);
+          console.log(`[Row ${rowNumber}] Relative path: ${relativePath}`);
           
           // Check if relativePath (file_path) is already used in videos table
           // Also check cloudflare_resources by the actual file path that will be stored
@@ -1187,18 +1157,18 @@ export async function bulkUploadFromCSV(req, res) {
             // Manual uploads to My Storage are separate and don't prevent CSV uploads
           }
 
-          // Copy video file to my-storage (only if target doesn't exist or is different)
-          // If file is already in my-storage at the target location, use it directly
+          // Copy video file to backend/upload/ folder (only if target doesn't exist or is different)
+          // If file is already in upload/ at the target location, use it directly
           if (fullVideoPath === targetFilePath) {
             // File is already at target location, use it directly
             console.log(`[Row ${rowNumber}] ✓ File already at target location: ${targetFilePath}`);
           } else if (!fsSync.existsSync(targetFilePath)) {
-            // File needs to be copied to my-storage
+            // File needs to be copied to backend/upload/
             await fs.copyFile(fullVideoPath, targetFilePath);
-            console.log(`[Row ${rowNumber}] ✓ Copied video file to my-storage: ${targetFilePath}`);
+            console.log(`[Row ${rowNumber}] ✓ Copied video file to backend/upload/: ${targetFilePath}`);
           } else {
-            // Target file already exists, use it
-            console.log(`[Row ${rowNumber}] ✓ Target file already exists in my-storage: ${targetFilePath}`);
+            // Target file already exists in upload/, use it
+            console.log(`[Row ${rowNumber}] ✓ Target file already exists in backend/upload/: ${targetFilePath}`);
             // Update fullVideoPath to use the existing target file
             fullVideoPath = targetFilePath;
           }
@@ -1207,42 +1177,34 @@ export async function bulkUploadFromCSV(req, res) {
           size = await getFileSize(targetFilePath);
         }
 
-        // CRITICAL: redirect_slug is REQUIRED and UNIQUE in database
-        // Use videoId as fallback if redirect creation fails
-        const redirectSlug = videoId;
-        // Redirect to stream page so users can directly watch the video
+        // Generate unique redirect slug (short URL) - same as regular upload
+        const { generateUniqueShortId } = await import('../utils/shortUrlGenerator.js');
+        let redirectSlug;
+        try {
+          redirectSlug = await generateUniqueShortId();
+          console.log(`[Row ${rowNumber}] ✓ Generated unique redirect slug: ${redirectSlug}`);
+        } catch (slugError) {
+          console.warn(`[Row ${rowNumber}] Failed to generate unique slug, using videoId:`, slugError.message);
+          redirectSlug = videoId; // Fallback to videoId
+        }
+        
+        // Build streaming URL using redirect slug
+        streamingUrl = `${config.urls.base}/s/${redirectSlug}`;
         const redirectUrl = `${config.urls.frontend}/stream/${videoId}`;
 
-        // Create redirect with short URL - handle duplicates gracefully
+        // Create redirect entry
         let redirectResult;
         let shortUrl = redirectUrl;
-        let shortSlug = redirectSlug; // Always use videoId as fallback to ensure we have a value
+        let shortSlug = redirectSlug;
         try {
-          redirectResult = await redirectService.createRedirect(redirectSlug, redirectUrl, true);
+          redirectResult = await redirectService.createRedirect(redirectSlug, redirectUrl, false);
           shortUrl = redirectResult.shortUrl || redirectUrl;
-          shortSlug = redirectResult.shortSlug || redirectSlug; // Use generated slug or fallback to videoId
+          shortSlug = redirectResult.shortSlug || redirectSlug;
           console.log(`[Row ${rowNumber}] ✓ Created redirect with slug: ${shortSlug}`);
         } catch (redirectError) {
-          // If redirect slug already exists, generate a unique one
-          if (redirectError.code === 'ER_DUP_ENTRY' || redirectError.message.includes('Duplicate entry')) {
-            console.warn(`[Row ${rowNumber}] Redirect slug ${redirectSlug} already exists, generating unique slug...`);
-            try {
-              const uniqueSlug = `${redirectSlug}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-              redirectResult = await redirectService.createRedirect(uniqueSlug, redirectUrl, true);
-              shortUrl = redirectResult.shortUrl || redirectUrl;
-              shortSlug = redirectResult.shortSlug || uniqueSlug;
-              console.log(`[Row ${rowNumber}] ✓ Created redirect with unique slug: ${shortSlug}`);
-            } catch (retryError) {
-              console.warn(`[Row ${rowNumber}] Failed to create redirect with unique slug, using videoId:`, retryError.message);
-              shortSlug = redirectSlug; // videoId
-              shortUrl = redirectUrl;
-            }
-          } else {
-            console.warn(`[Row ${rowNumber}] Failed to create redirect, using videoId as slug:`, redirectError.message);
-            // Use videoId as redirect slug - this ensures we always have a value
-            shortSlug = redirectSlug; // videoId
-            shortUrl = redirectUrl;
-          }
+          console.warn(`[Row ${rowNumber}] Failed to create redirect, using generated slug:`, redirectError.message);
+          shortSlug = redirectSlug;
+          shortUrl = redirectUrl;
         }
         
         // Ensure shortSlug is never null or empty (required field)
@@ -1250,11 +1212,6 @@ export async function bulkUploadFromCSV(req, res) {
           console.error(`[Row ${rowNumber}] CRITICAL: redirect_slug is empty! Using videoId as fallback.`);
           shortSlug = videoId;
         }
-
-        // Build streaming URL using localhost with redirect slug (for short URLs like /s/:slug)
-        // This ensures videos are always streamed from localhost instead of Cloudflare URLs
-        // For CSV uploads, always use localhost streaming URL
-        streamingUrl = videoService.buildStreamingUrl(relativePath, videoId, shortSlug);
 
         // Generate QR code with short URL
         let qrUrl = null;
@@ -1580,78 +1537,101 @@ export async function bulkUploadFromCSV(req, res) {
 
         // Create cloudflare_resources entry so video appears in My Storage section
         // This MUST be created for CSV uploads to show in My Storage
-        try {
-          const localhostUrl = streamingUrl;
-          // Get filename from relativePath if available, otherwise from videoFilePath
-          let fileName;
-          if (relativePath) {
-            fileName = path.basename(relativePath);
-          } else if (videoFilePath) {
-            fileName = path.basename(videoFilePath);
-          } else {
-            fileName = `${videoId}_master.mp4`;
-          }
-          
-          // Ensure relativePath is set correctly for my-storage
-          let storagePath = relativePath;
-          if (!storagePath || !storagePath.startsWith('my-storage/')) {
-            // If relativePath is not in my-storage format, construct it
-            if (targetFilePath) {
-              const backendDir = path.dirname(__dirname);
-              const basePath = path.dirname(backendDir);
-              let uploadPath = path.isAbsolute(config.upload.uploadPath) 
-                ? config.upload.uploadPath 
-                : path.resolve(basePath, config.upload.uploadPath);
-              const myStoragePath = path.join(uploadPath, 'my-storage');
-              
-              // Check if targetFilePath is in my-storage
-              if (targetFilePath.includes('my-storage')) {
-                storagePath = path.relative(path.join(uploadPath), targetFilePath).replace(/\\/g, '/');
+        // Only create if video was successfully created (videoDbId exists)
+        if (videoDbId) {
+          try {
+            const localhostUrl = streamingUrl || `${config.urls.base}/s/${shortSlug || videoId}`;
+            
+            // Get filename from relativePath if available, otherwise from videoFilePath
+            let fileName;
+            if (relativePath) {
+              fileName = path.basename(relativePath);
+            } else if (videoFilePath) {
+              fileName = path.basename(videoFilePath);
+            } else {
+              fileName = `${videoId}_master.mp4`;
+            }
+            
+            // Ensure relativePath is set correctly for my-storage
+            let storagePath = relativePath;
+            if (!storagePath || !storagePath.startsWith('my-storage/')) {
+              // If relativePath is not in my-storage format, construct it
+              if (targetFilePath) {
+                const backendDir = path.dirname(__dirname);
+                const basePath = path.dirname(backendDir);
+                let uploadPath = path.isAbsolute(config.upload.uploadPath) 
+                  ? config.upload.uploadPath 
+                  : path.resolve(basePath, config.upload.uploadPath);
+                const myStoragePath = path.join(uploadPath, 'my-storage');
+                
+                // Check if targetFilePath is in my-storage
+                if (targetFilePath.includes('my-storage')) {
+                  storagePath = path.relative(path.join(uploadPath), targetFilePath).replace(/\\/g, '/');
+                } else {
+                  // Construct my-storage path
+                  storagePath = `my-storage/${fileName}`;
+                }
               } else {
-                // Construct my-storage path
                 storagePath = `my-storage/${fileName}`;
               }
-            } else {
-              storagePath = `my-storage/${fileName}`;
             }
+            
+            // Ensure storagePath starts with my-storage/
+            if (!storagePath.startsWith('my-storage/')) {
+              storagePath = `my-storage/${path.basename(storagePath)}`;
+            }
+            
+            // Create cloudflare_resources entry for CSV uploads
+            // NOTE: We do NOT check for duplicates in cloudflare_resources
+            // CSV uploads create entries in BOTH videos and cloudflare_resources
+            // Manual uploads to My Storage are separate and don't prevent CSV uploads
+            // We only check videos table for duplicates (done earlier)
+            console.log(`[Row ${rowNumber}] Creating cloudflare_resources entry:`, {
+              fileName,
+              storagePath,
+              streamingUrl: localhostUrl?.substring(0, 80),
+              size: size || 0,
+              videoDbId: videoDbId,
+              videoId: videoId
+            });
+            
+            // Validate required fields before insert
+            if (!fileName || !localhostUrl || !storagePath) {
+              throw new Error(`Missing required fields: fileName=${!!fileName}, localhostUrl=${!!localhostUrl}, storagePath=${!!storagePath}`);
+            }
+            
+            const insertResult = await pool.execute(
+              `INSERT INTO cloudflare_resources 
+               (file_name, original_file_name, file_size, file_type, cloudflare_url, cloudflare_key, storage_type, source_type, source_path, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                fileName,
+                fileName,
+                size || 0,
+                'video/mp4',
+                localhostUrl,
+                storagePath, // my-storage path
+                'r2', // Use 'r2' as storage_type (enum only allows 'r2' or 'stream')
+                'upload', // Use 'upload' as source_type (enum only allows 'local', 'misc', 'upload')
+                videoFilePath || null,
+                'completed'
+              ]
+            );
+            console.log(`[Row ${rowNumber}] ✓ Created cloudflare_resources entry for My Storage:`, {
+              insertId: insertResult[0].insertId,
+              path: storagePath,
+              fileName: fileName
+            });
+          } catch (resourceError) {
+            console.error(`[Row ${rowNumber}] ✗ CRITICAL: Failed to create cloudflare_resources entry:`, resourceError.message);
+            console.error(`[Row ${rowNumber}] ✗ Resource error code:`, resourceError.code);
+            console.error(`[Row ${rowNumber}] ✗ Resource error SQL:`, resourceError.sqlMessage);
+            console.error(`[Row ${rowNumber}] ✗ Resource error stack:`, resourceError.stack);
+            // Don't fail the whole upload, but log it as a warning
+            console.warn(`[Row ${rowNumber}] ⚠ Video will not appear in My Storage section due to resource entry failure`);
           }
-          
-          // Create cloudflare_resources entry for CSV uploads
-          // NOTE: We do NOT check for duplicates in cloudflare_resources
-          // CSV uploads create entries in BOTH videos and cloudflare_resources
-          // Manual uploads to My Storage are separate and don't prevent CSV uploads
-          // We only check videos table for duplicates (done earlier)
-          console.log(`[Row ${rowNumber}] Creating cloudflare_resources entry:`, {
-            fileName,
-            storagePath,
-            streamingUrl: localhostUrl?.substring(0, 80),
-            size: size || 0
-          });
-          
-          await pool.execute(
-            `INSERT INTO cloudflare_resources 
-             (file_name, original_file_name, file_size, file_type, cloudflare_url, cloudflare_key, storage_type, source_type, source_path, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              fileName,
-              fileName,
-              size || 0,
-              'video/mp4',
-              localhostUrl,
-              storagePath, // my-storage path
-              'my-storage',
-              'csv-upload',
-              videoFilePath || null,
-              'completed'
-            ]
-          );
-          console.log(`[Row ${rowNumber}] ✓ Created cloudflare_resources entry for My Storage with path: ${storagePath}`);
-        } catch (resourceError) {
-          console.error(`[Row ${rowNumber}] ✗ CRITICAL: Failed to create cloudflare_resources entry:`, resourceError.message);
-          console.error(`[Row ${rowNumber}] ✗ Resource error code:`, resourceError.code);
-          console.error(`[Row ${rowNumber}] ✗ Resource error SQL:`, resourceError.sqlMessage);
-          // Don't fail the whole upload, but log it as a warning
-          console.warn(`[Row ${rowNumber}] ⚠ Video will not appear in My Storage section due to resource entry failure`);
+        } else {
+          console.warn(`[Row ${rowNumber}] ⚠ Skipping cloudflare_resources creation - video was not created (videoDbId is null)`);
         }
 
         // Only mark as successful if video was created

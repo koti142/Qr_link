@@ -1,104 +1,206 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { AlertCircle, Loader2 } from 'lucide-react';
+import VideoPlayer from '../components/VideoPlayer';
 import api from '../services/api';
 
 function ShortUrlRedirect() {
   const { slug } = useParams();
-  const navigate = useNavigate();
+  const [video, setVideo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [playerError, setPlayerError] = useState(null);
 
   useEffect(() => {
-    const handleRedirect = async () => {
-      if (!slug) {
-        setError('Invalid URL');
-        setLoading(false);
-        return;
-      }
+    if (!slug) {
+      setError('Invalid URL');
+      setLoading(false);
+      return;
+    }
 
+    const fetchVideo = async () => {
       try {
-        // First, try to get redirect info from API to find the target URL
+        let videoData = null;
+        
         try {
-          const response = await api.get(`/videos/redirect-info/${slug}`);
-          if (response.data && response.data.target_url) {
-            // Extract the path from the target URL (e.g., /stream/videoId)
-            const targetUrl = response.data.target_url;
-            let targetPath = targetUrl;
+          const redirectResponse = await api.get(`/videos/redirect-info/${slug}`);
+          if (redirectResponse.data && redirectResponse.data.video) {
+            videoData = redirectResponse.data.video;
+          } else if (redirectResponse.data && redirectResponse.data.target_url) {
+            const targetUrl = redirectResponse.data.target_url;
+            const url = new URL(targetUrl);
+            const pathParts = url.pathname.split('/');
+            const videoId = pathParts[pathParts.length - 1];
             
-            // If it's a full URL, extract just the path
-            if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
-              const url = new URL(targetUrl);
-              targetPath = url.pathname + url.search;
+            const videoResponse = await api.get(`/videos/${videoId}`);
+            if (videoResponse.data) {
+              videoData = videoResponse.data;
             }
-            
-            // Navigate to the stream page
-            console.log('Redirecting to:', targetPath);
-            navigate(targetPath, { replace: true });
-            return;
           }
-        } catch (fetchError) {
-          console.log('Redirect API call failed, trying direct video lookup...', fetchError);
+        } catch (redirectErr) {
+          console.log('Redirect info lookup failed, trying direct video lookup...', redirectErr);
         }
 
-        // If redirect API doesn't work, check if slug is a video_id by looking up in videos table
-        // We need to check if there's a video with this slug as redirect_slug
-        try {
-          // Try to get video by checking if slug matches redirect_slug in database
-          // Since we can't query directly, try fetching as video_id first
-          const videoResponse = await api.get(`/videos/${slug}`);
-          if (videoResponse.data) {
-            // It's a valid video, redirect to stream page
-            console.log('Found video, redirecting to stream:', slug);
-            navigate(`/stream/${slug}`, { replace: true });
-            return;
+        if (!videoData) {
+          try {
+            const videoResponse = await api.get(`/videos/${slug}`);
+            if (videoResponse.data) {
+              videoData = videoResponse.data;
+            }
+          } catch (videoErr) {
+            console.log('Direct video lookup failed:', videoErr);
           }
-        } catch (videoError) {
-          console.log('Video lookup failed:', videoError);
         }
 
-        // If we get here, the slug doesn't exist
-        setError('Short URL not found');
+        if (!videoData) {
+          setError('Video not found');
+          setLoading(false);
+          return;
+        }
+
+        setVideo(videoData);
         setLoading(false);
       } catch (err) {
-        console.error('Redirect error:', err);
-        setError('Failed to redirect');
+        console.error('Error fetching video:', err);
+        setError(err.response?.data?.error || 'Failed to load video');
         setLoading(false);
       }
     };
 
-    handleRedirect();
-  }, [slug, navigate]);
+    fetchVideo();
+  }, [slug]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Redirecting...</p>
+          <div className="relative">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent mx-auto mb-4"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Loader2 className="w-8 h-8 text-blue-600 animate-pulse" />
+            </div>
+          </div>
+          <p className="mt-6 text-slate-900 text-lg font-medium">Loading video...</p>
+          <p className="mt-2 text-slate-600 text-sm">Please wait while we prepare your content</p>
         </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error || !video) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-red-600 mb-2">Error</h1>
-          <p className="text-gray-600 mb-4">{error}</p>
-          <button
-            onClick={() => navigate('/')}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Go to Home
-          </button>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8 max-w-md w-full text-center">
+          <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <AlertCircle className="w-10 h-10 text-red-600" />
+          </div>
+          <h1 className="text-3xl font-bold text-slate-900 mb-3">Video Not Found</h1>
+          <p className="text-slate-600 mb-6">{error || 'The video you are looking for could not be found.'}</p>
+          <p className="text-slate-500 text-sm">Please check the video link or contact support if the problem persists.</p>
         </div>
       </div>
     );
   }
 
-  return null;
+  const isMockUrl = (url) => {
+    if (!url || typeof url !== 'string') return false;
+    const urlLower = url.toLowerCase();
+    return urlLower.includes('your-account.r2.cloudflarestorage.com') ||
+           urlLower.includes('r2.cloudflarestorage.com') ||
+           urlLower.includes('mock-cloudflare.example.com') ||
+           (urlLower.includes('example.com') && !urlLower.includes('pub-')) ||
+           urlLower.includes('test.cloudflare') ||
+           (urlLower.includes('cloudflare.com/') && !urlLower.includes('pub-')) ||
+           urlLower.includes('cloudflarestorage.com');
+  };
+  
+  const cloudflareUrl = video.streaming_url || video.file_path;
+  const isCloudflareUrl = cloudflareUrl && (cloudflareUrl.startsWith('http://') || cloudflareUrl.startsWith('https://'));
+  const isMock = cloudflareUrl ? isMockUrl(cloudflareUrl) : false;
+  
+  let streamingUrl;
+  
+  if (isMock) {
+    const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+    const streamIdentifier = video.redirect_slug || video.video_id;
+    streamingUrl = `${backendUrl}/s/${streamIdentifier}`;
+  } else if (isCloudflareUrl && !isMock) {
+    if (isMockUrl(cloudflareUrl)) {
+      const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+      const streamIdentifier = video.redirect_slug || video.video_id;
+      streamingUrl = `${backendUrl}/s/${streamIdentifier}`;
+    } else {
+      streamingUrl = cloudflareUrl;
+    }
+  } else {
+    const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+    const streamIdentifier = video.redirect_slug || video.video_id;
+    streamingUrl = `${backendUrl}/s/${streamIdentifier}`;
+  }
+  
+  if (streamingUrl && isMockUrl(streamingUrl)) {
+    const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+    const streamIdentifier = video.redirect_slug || video.video_id;
+    streamingUrl = `${backendUrl}/s/${streamIdentifier}`;
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {streamingUrl && video ? (
+          <div className="space-y-6">
+            {/* Video Title Section */}
+            {video.title && (
+              <div className="text-center mb-6">
+                <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-3">
+                  {video.title}
+                </h1>
+                {video.description && (
+                  <p className="text-slate-600 text-lg max-w-3xl mx-auto leading-relaxed">
+                    {video.description}
+                  </p>
+                )}
+              </div>
+            )}
+            
+            {/* Video Player Container */}
+            <div className="bg-white rounded-2xl overflow-hidden shadow-xl border border-slate-200">
+              <div className="aspect-video w-full">
+                <VideoPlayer 
+                  src={streamingUrl} 
+                  captions={video.captions || []} 
+                  autoplay={true}
+                  videoId={video.video_id || slug}
+                />
+              </div>
+            </div>
+            
+            {/* Error Messages */}
+            {playerError && (
+              <div className="bg-red-50 border-l-4 border-red-500 rounded-xl p-5">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-bold text-red-800 mb-2">Error Loading Video</p>
+                    <p className="text-red-700 text-sm mb-3">{playerError}</p>
+                    <p className="text-red-600 text-xs">Please try refreshing the page or contact support if the problem persists.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-16">
+            <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-8 max-w-md mx-auto">
+              <AlertCircle className="w-16 h-16 text-slate-400 mx-auto mb-4" />
+              <p className="text-slate-900 text-lg font-medium mb-2">Streaming URL Not Available</p>
+              <p className="text-slate-600 text-sm">Please contact support if this issue persists.</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default ShortUrlRedirect;
-

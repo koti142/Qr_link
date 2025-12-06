@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Upload, Cloud, FileVideo, Trash2, RefreshCw, CheckCircle, XCircle, AlertCircle, Download, Folder, HardDrive, Edit2, Save, X } from 'lucide-react';
+import { Upload, Cloud, FileVideo, Trash2, RefreshCw, CheckCircle, XCircle, AlertCircle, Download, Folder, HardDrive, Edit2, Save, X, FileText } from 'lucide-react';
 import api from '../services/api';
 
 function MyStorageManager() {
@@ -17,6 +17,7 @@ function MyStorageManager() {
   const [videosWithMockUrls, setVideosWithMockUrls] = useState([]);
   const [resourceVideos, setResourceVideos] = useState({}); // Map of resource ID to videos
   const [showVideosModal, setShowVideosModal] = useState(null); // Resource ID showing videos
+  const [selectedResources, setSelectedResources] = useState([]); // Selected resources for bulk operations
 
   // Load data
   useEffect(() => {
@@ -73,23 +74,44 @@ function MyStorageManager() {
 
   const loadCloudflareResources = async () => {
     setLoading(true);
+    setError('');
     try {
+      console.log('Loading My Storage resources...');
       const response = await api.get('/cloudflare/resources');
+      console.log('My Storage API response:', response.data);
+      
       const resources = response.data.resources || [];
+      console.log(`Loaded ${resources.length} resources from My Storage`);
+      
+      if (resources.length === 0) {
+        console.warn('No resources found in My Storage');
+        setError('No resources found in My Storage. Upload some videos first.');
+      }
+      
       setCloudflareResources(resources);
       
-      // Load videos for each resource
+      // Load videos for each resource (async, don't block UI)
       const videosMap = {};
       for (const resource of resources) {
         if (resource.cloudflare_url) {
-          const videos = await loadVideosForResource(resource.cloudflare_url);
-          videosMap[resource.id] = videos;
+          try {
+            const videos = await loadVideosForResource(resource.cloudflare_url);
+            videosMap[resource.id] = videos;
+          } catch (videoErr) {
+            console.warn(`Failed to load videos for resource ${resource.id}:`, videoErr);
+            videosMap[resource.id] = [];
+          }
         }
       }
       setResourceVideos(videosMap);
     } catch (err) {
       console.error('Failed to load Cloudflare resources:', err);
-      setError(err.response?.data?.error || 'Failed to load Cloudflare resources');
+      console.error('Error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status
+      });
+      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to load My Storage resources. Please check the backend logs.');
     } finally {
       setLoading(false);
     }
@@ -456,10 +478,58 @@ function MyStorageManager() {
     try {
       await api.delete(`/cloudflare/resources/${id}`);
       setSuccess('Resource deleted successfully');
+      // Remove from selected if it was selected
+      setSelectedResources(selectedResources.filter(rid => rid !== id));
       loadCloudflareResources();
     } catch (err) {
       console.error('Delete error:', err);
       setError(err.response?.data?.error || 'Failed to delete resource');
+    }
+  };
+
+  // Select/deselect resource
+  const handleSelectResource = (id) => {
+    if (selectedResources.includes(id)) {
+      setSelectedResources(selectedResources.filter(rid => rid !== id));
+    } else {
+      setSelectedResources([...selectedResources, id]);
+    }
+  };
+
+  // Select all/deselect all resources
+  const handleSelectAllResources = () => {
+    if (selectedResources.length === cloudflareResources.length) {
+      setSelectedResources([]);
+    } else {
+      setSelectedResources(cloudflareResources.map(r => r.id));
+    }
+  };
+
+  // Delete selected resources
+  const handleDeleteSelectedResources = async () => {
+    if (selectedResources.length === 0) {
+      setError('Please select at least one resource to delete');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete ${selectedResources.length} resource(s)?\n\nThis will also delete the files from my-storage folder.`)) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const deletePromises = selectedResources.map(id =>
+        api.delete(`/cloudflare/resources/${id}`)
+      );
+      await Promise.all(deletePromises);
+      setSuccess(`${selectedResources.length} resource(s) deleted successfully`);
+      setSelectedResources([]);
+      loadCloudflareResources();
+    } catch (err) {
+      console.error('Delete error:', err);
+      setError(err.response?.data?.error || 'Failed to delete resources');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -871,19 +941,21 @@ function MyStorageManager() {
   };
 
   return (
-    <div className="min-h-full bg-gradient-to-br from-gray-50 via-blue-50 to-purple-50 p-6">
-      <div className="w-full h-full">
-        {/* Header Section */}
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8 mb-6">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-3 flex items-center gap-3">
-                <div className="p-3 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-xl shadow-lg">
-                  <Cloud className="w-10 h-10 text-white" />
-                </div>
-                My Storage Manager
-              </h1>
-              <p className="text-gray-600 text-lg ml-16">Upload files from misc folder to local storage (my-storage) with localhost streaming URLs</p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6 lg:p-8">
+      <div className="max-w-[1800px] mx-auto">
+        {/* Header Section with gradient icon and Refresh All button */}
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-8 mb-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+            <div className="flex items-center gap-4">
+              <div className="p-4 bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 rounded-2xl shadow-lg">
+                <Cloud className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-slate-900 mb-2">
+                  My Storage Manager
+                </h1>
+                <p className="text-slate-600 text-lg">Upload files from misc folder to local storage (my-storage) with localhost streaming URLs</p>
+              </div>
             </div>
             <button
               onClick={() => {
@@ -891,7 +963,7 @@ function MyStorageManager() {
                 loadCloudflareResources();
               }}
               disabled={loading || loadingMisc}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed shadow-sm"
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed shadow-lg hover:shadow-xl hover:scale-[1.02] font-semibold"
             >
               <RefreshCw className={`w-4 h-4 ${loading || loadingMisc ? 'animate-spin' : ''}`} />
               Refresh All
@@ -901,11 +973,11 @@ function MyStorageManager() {
 
         {/* Messages */}
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg text-red-700 flex items-start gap-3 shadow-sm">
+          <div className="mb-6 p-5 bg-red-50 border-l-4 border-red-500 rounded-xl text-red-700 flex items-start gap-3 shadow-sm">
             <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
               <div className="font-semibold mb-1">Upload Failed</div>
-              <div className="text-sm whitespace-pre-wrap font-mono bg-red-100 p-2 rounded border border-red-200 overflow-auto max-h-96">
+              <div className="text-sm whitespace-pre-wrap font-mono bg-red-100 p-3 rounded-xl border border-red-200 overflow-auto max-h-96">
                 {error}
               </div>
             </div>
@@ -916,7 +988,7 @@ function MyStorageManager() {
         )}
 
         {success && (
-          <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-lg text-green-700 flex items-start gap-3 shadow-sm">
+          <div className="mb-6 p-5 bg-green-50 border-l-4 border-green-500 rounded-xl text-green-700 flex items-start gap-3 shadow-sm">
             <CheckCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
             <div className="flex-1 font-medium">{success}</div>
             <button onClick={() => setSuccess('')} className="text-green-500 hover:text-green-700 transition-colors">
@@ -927,7 +999,7 @@ function MyStorageManager() {
 
         {/* Warning for Mock URLs */}
         {cloudflareResources.some(r => isMockUrl(r.cloudflare_url)) && (
-          <div className="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded-lg text-yellow-800 flex items-start gap-3 shadow-sm">
+          <div className="mb-6 p-5 bg-yellow-50 border-l-4 border-yellow-500 rounded-xl text-yellow-800 flex items-start gap-3 shadow-sm">
             <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
               <div className="font-semibold mb-1">Mock/Test URLs Detected</div>
@@ -940,28 +1012,28 @@ function MyStorageManager() {
           </div>
         )}
 
-        {/* Two Column Layout - Full Width */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-280px)]">
+        {/* Two Column Layout - Responsive */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           {/* Left Side - Misc Files */}
-          <div className="bg-white rounded-xl shadow-lg border border-gray-200 flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-purple-50">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                  <div className="p-1.5 bg-blue-600 rounded-lg">
-                    <Folder className="w-5 h-5 text-white" />
+          <div className="bg-white rounded-2xl shadow-lg border border-slate-200 flex flex-col overflow-hidden">
+            {/* Header with gradient */}
+            <div className="p-6 lg:p-8 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-cyan-50">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-3">
+                  <div className="p-2 bg-blue-100 rounded-xl">
+                    <Folder className="w-5 h-5 text-blue-600" />
                   </div>
                   Misc Folder Files
-                  <span className="ml-2 px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                  <span className="ml-2 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-semibold">
                     {miscFiles.length}
                   </span>
                 </h2>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   {selectedMiscFiles.length > 0 && (
                     <button
                       onClick={handleDeleteSelectedMiscFiles}
                       disabled={loadingMisc}
-                      className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:bg-red-400 disabled:cursor-not-allowed font-medium shadow-sm flex items-center gap-1"
+                      className="px-4 py-2 text-sm bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all duration-200 disabled:bg-red-300 disabled:cursor-not-allowed font-semibold shadow-md hover:shadow-lg hover:scale-[1.02] flex items-center gap-2"
                       title="Delete selected files"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -971,14 +1043,14 @@ function MyStorageManager() {
                   <button
                     onClick={handleSelectAllMisc}
                     disabled={miscFiles.length === 0}
-                    className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-400 disabled:cursor-not-allowed font-medium shadow-sm"
+                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
                   >
                     {selectedMiscFiles.length === miscFiles.length && miscFiles.length > 0 ? 'Deselect All' : 'Select All'}
                   </button>
                   <button
                     onClick={loadMiscFiles}
                     disabled={loadingMisc}
-                    className="px-3 py-1.5 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed shadow-sm"
+                    className="px-4 py-2 text-sm bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Refresh"
                   >
                     <RefreshCw className={`w-4 h-4 ${loadingMisc ? 'animate-spin' : ''}`} />
@@ -987,18 +1059,18 @@ function MyStorageManager() {
               </div>
             </div>
 
-            {/* Files List - Scrollable */}
-            <div className="flex-1 overflow-y-auto p-4">
+            {/* Files List - Scrollable with pill-shaped cards */}
+            <div className="flex-1 overflow-y-auto p-6">
               {loadingMisc ? (
                 <div className="flex items-center justify-center py-16">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
                 </div>
               ) : miscFiles.length === 0 ? (
-                <div className="text-center py-16 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                  <FileVideo className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                  <div className="text-gray-500 font-medium text-lg mb-2">No files found</div>
-                  <div className="text-gray-400 text-sm mb-4">Files in misc folder will appear here</div>
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-md mx-auto">
+                <div className="text-center py-16 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
+                  <FileVideo className="w-16 h-16 text-slate-400 mx-auto mb-4" />
+                  <div className="text-slate-600 font-semibold mb-2">No files found</div>
+                  <div className="text-slate-500 text-sm mb-4">Files in misc folder will appear here</div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 max-w-md mx-auto">
                     <div className="text-blue-800 font-semibold text-sm mb-2">📁 Misc Folder Location:</div>
                     <div className="text-blue-600 text-xs font-mono break-all">
                       video-storage/misc/
@@ -1009,27 +1081,27 @@ function MyStorageManager() {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {miscFiles.map((file, index) => {
                     const isSelected = selectedMiscFiles.some(f => f.path === file.path);
                     return (
                       <div
                         key={index}
                         onClick={() => handleSelectMiscFile(file)}
-                        className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                        className={`p-4 rounded-xl cursor-pointer transition-all duration-200 ${
                           isSelected
-                            ? 'border-blue-500 bg-blue-50 shadow-md'
-                            : 'border-gray-200 hover:border-blue-300 hover:shadow-sm bg-white'
+                            ? 'bg-gradient-to-r from-blue-50 to-cyan-50 border-2 border-blue-500 shadow-md scale-[1.01]'
+                            : 'bg-white border border-slate-200 hover:border-blue-400 hover:shadow-md hover:scale-[1.01]'
                         }`}
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-3 flex-1 min-w-0">
-                            <div className={`p-2 rounded-lg ${isSelected ? 'bg-blue-100' : 'bg-gray-100'}`}>
-                              <FileVideo className={`w-5 h-5 ${isSelected ? 'text-blue-600' : 'text-gray-600'}`} />
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <div className={`p-2.5 rounded-xl ${isSelected ? 'bg-blue-600' : 'bg-slate-100'}`}>
+                              <FileVideo className={`w-5 h-5 ${isSelected ? 'text-white' : 'text-slate-600'}`} />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="font-medium text-gray-900 truncate text-sm mb-1">{file.filename}</div>
-                              <div className="text-xs text-gray-500 flex items-center gap-2">
+                              <div className="font-semibold text-slate-900 truncate mb-1">{file.filename}</div>
+                              <div className="text-sm text-slate-500 flex items-center gap-2">
                                 <span>{file.sizeFormatted}</span>
                                 <span>•</span>
                                 <span>{new Date(file.modified).toLocaleDateString()}</span>
@@ -1040,7 +1112,7 @@ function MyStorageManager() {
                             <button
                               onClick={(e) => handleDeleteMiscFile(file, e)}
                               disabled={loadingMisc}
-                              className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:text-red-300 disabled:cursor-not-allowed"
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-all duration-200 disabled:text-red-300 disabled:cursor-not-allowed hover:scale-110"
                               title="Delete file"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1058,13 +1130,13 @@ function MyStorageManager() {
             </div>
 
             {/* Action Buttons - Fixed at Bottom */}
-            <div className="p-4 border-t border-gray-200 bg-gray-50 space-y-2">
+            <div className="p-6 border-t border-slate-200 bg-slate-50 space-y-3">
               {selectedMiscFiles.length > 0 && (
                 <>
                   <button
                     onClick={() => handleUploadFromMisc(false)}
                     disabled={loading}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all disabled:from-blue-400 disabled:to-blue-500 font-medium shadow-md"
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 disabled:from-blue-400 disabled:to-indigo-500 font-semibold shadow-lg hover:shadow-xl hover:scale-[1.02]"
                   >
                     <Upload className="w-5 h-5" />
                     Upload {selectedMiscFiles.length} Selected to Local Storage
@@ -1072,17 +1144,17 @@ function MyStorageManager() {
                   <button
                     onClick={() => handleUploadFromMisc(true)}
                     disabled={loading}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 transition-all disabled:from-green-400 disabled:to-green-500 font-medium shadow-md"
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 disabled:from-green-400 disabled:to-emerald-500 font-semibold shadow-lg hover:shadow-xl hover:scale-[1.02]"
                   >
                     <Cloud className="w-5 h-5" />
                     Test Upload ({selectedMiscFiles.length} files)
                   </button>
                 </>
               )}
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg hover:from-purple-700 hover:to-purple-800 transition-all cursor-pointer font-medium shadow-md">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl hover:from-purple-700 hover:to-indigo-700 transition-all duration-200 cursor-pointer font-semibold shadow-lg hover:shadow-xl hover:scale-[1.02]">
                   <Upload className="w-4 h-4" />
-                  <span className="text-sm">From PC</span>
+                  <span>From PC</span>
                   <input
                     type="file"
                     multiple
@@ -1091,9 +1163,9 @@ function MyStorageManager() {
                     disabled={loading}
                   />
                 </label>
-                <label className="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 transition-all cursor-pointer font-medium shadow-md">
+                <label className="flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 cursor-pointer font-semibold shadow-lg hover:shadow-xl hover:scale-[1.02]">
                   <Cloud className="w-4 h-4" />
-                  <span className="text-sm">Test</span>
+                  <span>Test</span>
                   <input
                     type="file"
                     multiple
@@ -1107,74 +1179,125 @@ function MyStorageManager() {
           </div>
 
           {/* Right Side - My Storage */}
-          <div className="bg-white rounded-xl shadow-lg border border-gray-200 flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-blue-50">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                  <div className="p-1.5 bg-purple-600 rounded-lg">
-                    <HardDrive className="w-5 h-5 text-white" />
+          <div className="bg-white rounded-2xl shadow-lg border border-slate-200 flex flex-col overflow-hidden">
+            {/* Header with gradient */}
+            <div className="p-6 lg:p-8 border-b border-slate-200 bg-gradient-to-r from-teal-50 to-cyan-50">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-3">
+                  <div className="p-2 bg-teal-100 rounded-xl">
+                    <HardDrive className="w-5 h-5 text-teal-600" />
                   </div>
                   My Storage
-                  <span className="ml-2 px-2.5 py-0.5 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">
+                  <span className="ml-2 px-3 py-1 bg-teal-100 text-teal-700 rounded-full text-sm font-semibold">
                     {cloudflareResources.length}
                   </span>
                 </h2>
-                {cloudflareResources.length > 0 && (
-                  <button
-                    onClick={generateCSVFromMyStorage}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium shadow-sm"
-                  >
-                    <Download className="w-4 h-4" />
-                    Generate CSV
-                  </button>
-                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {selectedResources.length > 0 && (
+                    <button
+                      onClick={handleDeleteSelectedResources}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all duration-200 font-semibold shadow-md hover:shadow-lg hover:scale-[1.02]"
+                      title="Delete selected resources"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete ({selectedResources.length})
+                    </button>
+                  )}
+                  {cloudflareResources.length > 0 && (
+                    <button
+                      onClick={generateCSVFromMyStorage}
+                      className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-200 font-bold shadow-md hover:shadow-lg hover:scale-[1.02]"
+                    >
+                      <FileText className="w-4 h-4" />
+                      Generate CSV
+                    </button>
+                  )}
+                </div>
               </div>
+              {cloudflareResources.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedResources.length === cloudflareResources.length && cloudflareResources.length > 0}
+                    onChange={handleSelectAllResources}
+                    className="w-4 h-4 text-teal-600 border-slate-300 rounded focus:ring-teal-500"
+                  />
+                  <label className="text-sm text-slate-700 cursor-pointer font-medium">
+                    {selectedResources.length === cloudflareResources.length && cloudflareResources.length > 0 ? 'Deselect All' : 'Select All'}
+                  </label>
+                  {selectedResources.length > 0 && (
+                    <span className="text-sm text-slate-600 ml-2">
+                      ({selectedResources.length} selected)
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Resources Table - Scrollable */}
+            {/* Resources Table - Scrollable with sticky header and zebra striping */}
             <div className="flex-1 overflow-y-auto">
               {loading ? (
                 <div className="flex items-center justify-center py-16">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600"></div>
                 </div>
               ) : cloudflareResources.length === 0 ? (
-                <div className="text-center py-16 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 m-4">
-                  <Cloud className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                  <div className="text-gray-500 font-medium text-lg mb-2">No resources uploaded yet</div>
-                  <div className="text-gray-400 text-sm">Upload files to see them here</div>
+                <div className="text-center py-16 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200 m-6">
+                  <Cloud className="w-16 h-16 text-slate-400 mx-auto mb-4" />
+                  <div className="text-slate-600 font-semibold mb-2">No resources uploaded yet</div>
+                  <div className="text-slate-500 text-sm">Upload files to see them here</div>
                 </div>
               ) : (
-                <div className="p-4">
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50 sticky top-0">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">File Name</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Size</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Streaming URL</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Storage Path</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {cloudflareResources.map((resource) => (
-                          <tr key={resource.id} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
-                                <div className="p-1.5 bg-blue-100 rounded">
-                                  <FileVideo className="w-4 h-4 text-blue-600" />
+                <div className="overflow-x-auto">
+                  <table className="min-w-full">
+                    <thead className="bg-gradient-to-r from-slate-50 to-teal-50 sticky top-0 z-10 shadow-sm">
+                      <tr>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider w-12">
+                          <input
+                            type="checkbox"
+                            checked={selectedResources.length === cloudflareResources.length && cloudflareResources.length > 0}
+                            onChange={handleSelectAllResources}
+                            className="w-4 h-4 text-teal-600 border-slate-300 rounded focus:ring-teal-500"
+                          />
+                        </th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">File Name</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Size</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Streaming URL</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Storage Path</th>
+                        <th className="px-6 py-4 text-center text-xs font-semibold text-slate-700 uppercase tracking-wider">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-slate-200">
+                        {cloudflareResources.map((resource, index) => {
+                          const isSelected = selectedResources.includes(resource.id);
+                          return (
+                          <tr key={resource.id} className={`transition-colors duration-200 ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50'} ${isSelected ? 'bg-blue-50' : ''} hover:bg-blue-50/50`}>
+                            <td className="px-6 py-4">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleSelectResource(resource.id)}
+                                className="w-4 h-4 text-teal-600 border-slate-300 rounded focus:ring-teal-500"
+                              />
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className={`p-2 rounded-xl ${resource.source_type === 'upload' ? 'bg-blue-100' : 'bg-purple-100'}`}>
+                                  {resource.source_type === 'upload' ? (
+                                    <Upload className="w-4 h-4 text-blue-600" />
+                                  ) : (
+                                    <Folder className="w-4 h-4 text-purple-600" />
+                                  )}
                                 </div>
                                 <div>
-                                  <div className="text-sm font-medium text-gray-900">{resource.file_name}</div>
-                                  <div className="text-xs text-gray-500 mt-0.5 capitalize">{resource.source_type}</div>
+                                  <div className="text-sm font-semibold text-slate-900">{resource.file_name}</div>
+                                  <div className="text-xs text-slate-500 mt-0.5 capitalize">{resource.source_type}</div>
                                 </div>
                               </div>
                             </td>
-                            <td className="px-4 py-3">
-                              <div className="text-sm text-gray-600 font-medium">{formatFileSize(resource.file_size)}</div>
+                            <td className="px-6 py-4">
+                              <div className="text-sm text-slate-700 font-semibold">{formatFileSize(resource.file_size)}</div>
                             </td>
-                            <td className="px-4 py-3">
+                            <td className="px-6 py-4">
                               {editingUrl === resource.id ? (
                                 <div className="space-y-2">
                                   <div className="flex items-center gap-2">
@@ -1182,33 +1305,33 @@ function MyStorageManager() {
                                       type="text"
                                       value={editUrlValue}
                                       onChange={(e) => setEditUrlValue(e.target.value)}
-                                      className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                       placeholder="Enter Streaming URL"
                                       autoFocus
                                     />
                                     <button
                                       onClick={() => handleSaveUrl(resource.id, resource.cloudflare_url)}
-                                      className="text-green-600 hover:text-green-700 p-1 hover:bg-green-50 rounded"
+                                      className="text-green-600 hover:text-green-700 p-2 hover:bg-green-50 rounded-xl transition-all duration-200"
                                       title="Save"
                                     >
                                       <Save className="w-4 h-4" />
                                     </button>
                                     <button
                                       onClick={handleCancelEdit}
-                                      className="text-gray-600 hover:text-gray-700 p-1 hover:bg-gray-50 rounded"
+                                      className="text-slate-600 hover:text-slate-700 p-2 hover:bg-slate-50 rounded-xl transition-all duration-200"
                                       title="Cancel"
                                     >
                                       <X className="w-4 h-4" />
                                     </button>
                                   </div>
                                   {resourceVideos[resource.id] && resourceVideos[resource.id].length > 0 && (
-                                    <div className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                                    <div className="text-xs text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl">
                                       {resourceVideos[resource.id].length} video(s) using this URL
                                     </div>
                                   )}
                                 </div>
                               ) : (
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   {(() => {
                                     const displayUrl = getLocalhostUrl(resource);
                                     const isMock = isMockUrl(resource.cloudflare_url);
@@ -1218,20 +1341,20 @@ function MyStorageManager() {
                                           href={displayUrl}
                                           target="_blank"
                                           rel="noopener noreferrer"
-                                          className={`text-sm hover:underline truncate max-w-xs block flex items-center gap-1 ${
+                                          className={`text-sm hover:underline truncate max-w-xs block flex items-center gap-1.5 transition-all duration-200 ${
                                             isMock
                                               ? 'text-orange-600 hover:text-orange-700'
                                               : 'text-blue-600 hover:text-blue-700'
                                           }`}
                                           title={displayUrl}
                                         >
-                                          <Cloud className="w-3 h-3" />
+                                          <Cloud className="w-3.5 h-3.5" />
                                           {displayUrl && displayUrl.length > 40 
                                             ? displayUrl.substring(0, 40) + '...' 
                                             : displayUrl || 'No URL'}
                                         </a>
                                         {isMock && (
-                                          <span className="text-xs text-orange-600 font-medium" title="Converted from mock URL to localhost">
+                                          <span className="text-xs text-orange-600 font-semibold" title="Converted from mock URL to localhost">
                                             🔄
                                           </span>
                                         )}
@@ -1241,7 +1364,7 @@ function MyStorageManager() {
                                   {resourceVideos[resource.id] && resourceVideos[resource.id].length > 0 && (
                                     <button
                                       onClick={() => handleShowVideos(resource)}
-                                      className="text-xs text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded"
+                                      className="text-xs text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl transition-all duration-200"
                                       title={`${resourceVideos[resource.id].length} video(s) using this URL`}
                                     >
                                       {resourceVideos[resource.id].length} video(s)
@@ -1250,18 +1373,18 @@ function MyStorageManager() {
                                 </div>
                               )}
                             </td>
-                            <td className="px-4 py-3">
-                              <div className="text-xs text-gray-600 font-mono bg-gray-50 px-2 py-1 rounded truncate max-w-xs" title={resource.cloudflare_key || resource.object_key || 'N/A'}>
+                            <td className="px-6 py-4">
+                              <div className="text-xs text-slate-600 font-mono bg-slate-50 px-3 py-2 rounded-xl truncate max-w-xs" title={resource.cloudflare_key || resource.object_key || 'N/A'}>
                                 {resource.cloudflare_key ? resource.cloudflare_key.replace(/^cloudflare\//, 'my-storage/') : (resource.object_key || 'N/A')}
                               </div>
                             </td>
-                            <td className="px-4 py-3 text-center">
+                            <td className="px-6 py-4 text-center">
                               <div className="flex items-center justify-center gap-2">
                                 {editingUrl !== resource.id && (
                                   <>
                                     <button
                                       onClick={() => handleEditUrl(resource)}
-                                      className="text-blue-600 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded"
+                                      className="text-blue-600 hover:text-blue-700 transition-all duration-200 p-2 hover:bg-blue-50 rounded-xl hover:scale-110"
                                       title="Edit URL"
                                     >
                                       <Edit2 className="w-4 h-4" />
@@ -1269,7 +1392,7 @@ function MyStorageManager() {
                                     {resourceVideos[resource.id] && resourceVideos[resource.id].length > 0 && (
                                       <button
                                         onClick={() => handleShowVideos(resource)}
-                                        className="text-purple-600 hover:text-purple-700 transition-colors p-1.5 hover:bg-purple-50 rounded"
+                                        className="text-purple-600 hover:text-purple-700 transition-all duration-200 p-2 hover:bg-purple-50 rounded-xl hover:scale-110"
                                         title="View videos using this URL"
                                       >
                                         <FileVideo className="w-4 h-4" />
@@ -1279,7 +1402,7 @@ function MyStorageManager() {
                                 )}
                                 <button
                                   onClick={() => handleDeleteResource(resource.id)}
-                                  className="text-red-600 hover:text-red-700 transition-colors p-1.5 hover:bg-red-50 rounded"
+                                  className="text-red-500 hover:text-red-600 transition-all duration-200 p-2 hover:bg-red-50 rounded-xl hover:scale-110"
                                   title="Delete"
                                 >
                                   <Trash2 className="w-4 h-4" />
@@ -1287,11 +1410,11 @@ function MyStorageManager() {
                               </div>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
-                </div>
               )}
             </div>
           </div>
@@ -1300,19 +1423,19 @@ function MyStorageManager() {
         {/* Videos Modal */}
         {showVideosModal && resourceVideos[showVideosModal] && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[80vh] flex flex-col">
-              <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-blue-50">
+            <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col">
+              <div className="p-6 lg:p-8 border-b border-slate-200 bg-gradient-to-r from-teal-50 to-cyan-50">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                    <FileVideo className="w-6 h-6 text-purple-600" />
+                  <h3 className="text-xl font-bold text-slate-900 flex items-center gap-3">
+                    <FileVideo className="w-6 h-6 text-teal-600" />
                     Videos Using This Streaming URL
-                    <span className="ml-2 px-2.5 py-0.5 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">
+                    <span className="ml-2 px-3 py-1 bg-teal-100 text-teal-700 rounded-full text-sm font-semibold">
                       {resourceVideos[showVideosModal].length}
                     </span>
                   </h3>
                   <button
                     onClick={() => setShowVideosModal(null)}
-                    className="text-gray-500 hover:text-gray-700 p-1 hover:bg-gray-100 rounded"
+                    className="text-slate-600 hover:bg-slate-100 p-2 rounded-xl transition-all duration-200"
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -1320,7 +1443,7 @@ function MyStorageManager() {
               </div>
               <div className="flex-1 overflow-y-auto p-6">
                 {resourceVideos[showVideosModal].length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
+                  <div className="text-center py-8 text-slate-500">
                     No videos found using this URL
                   </div>
                 ) : (
@@ -1328,20 +1451,20 @@ function MyStorageManager() {
                     {resourceVideos[showVideosModal].map((video) => (
                       <div
                         key={video.id}
-                        className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                        className="p-4 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all duration-200 hover:shadow-sm"
                       >
                         <div className="flex items-start justify-between gap-4">
                           <div className="flex-1">
-                            <div className="font-semibold text-gray-900 mb-1">{video.title || 'Untitled Video'}</div>
-                            <div className="text-sm text-gray-600 space-y-1">
-                              <div>Video ID: <code className="bg-gray-100 px-1 rounded">{video.video_id}</code></div>
-                              <div className="truncate">URL: <code className="bg-gray-100 px-1 rounded text-xs">{video.streaming_url || video.file_path}</code></div>
+                            <div className="font-semibold text-slate-900 mb-2">{video.title || 'Untitled Video'}</div>
+                            <div className="text-sm text-slate-600 space-y-1">
+                              <div>Video ID: <code className="bg-slate-100 px-2 py-1 rounded-lg text-xs">{video.video_id}</code></div>
+                              <div className="truncate">URL: <code className="bg-slate-100 px-2 py-1 rounded-lg text-xs">{video.streaming_url || video.file_path}</code></div>
                             </div>
                           </div>
                           <a
                             href={`/admin/videos/${video.video_id}/edit`}
                             target="_blank"
-                            className="text-blue-600 hover:text-blue-700 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 rounded text-sm font-medium transition-colors"
+                            className="text-blue-600 hover:text-blue-700 px-4 py-2 bg-blue-50 hover:bg-blue-100 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-[1.02]"
                           >
                             Edit Video
                           </a>
@@ -1357,41 +1480,41 @@ function MyStorageManager() {
 
         {/* Videos with Mock URLs Section */}
         {videosWithMockUrls.length > 0 && (
-          <div className="mt-6 bg-white rounded-2xl shadow-xl border border-gray-200 p-8">
+          <div className="mt-6 bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+              <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
                 <AlertCircle className="w-7 h-7 text-red-600" />
                 Videos with Mock URLs
-                <span className="ml-2 px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium">
+                <span className="ml-2 px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-semibold">
                   {videosWithMockUrls.length}
                 </span>
               </h2>
               <button
                 onClick={loadVideosWithMockUrls}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+                className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all duration-200 text-sm font-semibold"
               >
                 <RefreshCw className="w-4 h-4" />
                 Refresh
               </button>
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="min-w-full">
+                <thead className="bg-gradient-to-r from-slate-50 to-red-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video ID</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mock URL</th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Title</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Video ID</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Mock URL</th>
+                    <th className="px-6 py-4 text-center text-xs font-semibold text-slate-700 uppercase tracking-wider">Action</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {videosWithMockUrls.map((video) => (
-                    <tr key={video.id} className="hover:bg-gray-50">
+                <tbody className="bg-white divide-y divide-slate-200">
+                  {videosWithMockUrls.map((video, index) => (
+                    <tr key={video.id} className={`transition-colors duration-200 ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50'} hover:bg-red-50/50`}>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{video.title || 'Untitled Video'}</div>
+                        <div className="text-sm font-semibold text-slate-900">{video.title || 'Untitled Video'}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <code className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded">{video.video_id}</code>
+                        <code className="text-xs text-slate-600 bg-slate-100 px-3 py-1.5 rounded-xl">{video.video_id}</code>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm text-red-600 truncate max-w-md" title={video.streaming_url || video.file_path}>
@@ -1402,7 +1525,7 @@ function MyStorageManager() {
                         <a
                           href={`/admin/videos/${video.video_id}/edit`}
                           target="_blank"
-                          className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all duration-200 text-sm font-semibold shadow-md hover:shadow-lg hover:scale-[1.02]"
                         >
                           <Edit2 className="w-4 h-4" />
                           Fix Video

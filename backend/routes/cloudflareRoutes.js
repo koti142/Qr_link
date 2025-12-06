@@ -59,5 +59,8 @@ router.put('/resources/:id', authenticateToken, cloudflareController.updateMySto
 // Delete My Storage resource
 router.delete('/resources/:id', authenticateToken, cloudflareController.deleteMyStorageResource);
 
+// Cleanup orphaned files (files in my-storage without database entries)
+router.get('/cleanup-orphaned', authenticateToken, cloudflareController.cleanupOrphanedFiles);
+
 export default router;
 

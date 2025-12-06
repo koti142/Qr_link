@@ -8,6 +8,16 @@ import * as videoService from '../services/videoService.js';
 import config from '../config/config.js';
 import { authenticateToken } from '../middleware/auth.js';
 import multer from 'multer';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { ensureDirectoryExists } from '../utils/fileUtils.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Ensure temp-uploads directory exists
+const tempUploadsDir = path.join(__dirname, '../../temp-uploads');
+ensureDirectoryExists(tempUploadsDir).catch(() => {});
 
 const router = express.Router();
 
@@ -32,29 +42,44 @@ router.get('/redirect-info/:slug', async (req, res) => {
   try {
     const { slug } = req.params;
     
-    // First, try to get redirect from redirects table
-    let redirect = await redirectService.getRedirectBySlug(slug);
+    // First, try to get video by redirect_slug (most common case for direct streaming)
+    let video = await videoService.getVideoByRedirectSlug(slug, true);
     
-    // If not found in redirects table, check if slug is a redirect_slug in videos table
-    if (!redirect) {
-      const video = await videoService.getVideoByRedirectSlug(slug, true);
-      if (video) {
-        // Build redirect info from video
-        const targetUrl = `${config.urls.frontend}/stream/${video.video_id}`;
-        redirect = {
-          slug: slug,
-          target_url: targetUrl,
-          created_at: video.created_at,
-          updated_at: video.updated_at
-        };
+    // If not found, try to get redirect from redirects table
+    let redirect = null;
+    if (!video) {
+      redirect = await redirectService.getRedirectBySlug(slug);
+      
+      // If redirect found, try to extract videoId from target URL
+      if (redirect && redirect.target_url) {
+        try {
+          const url = new URL(redirect.target_url);
+          const pathParts = url.pathname.split('/');
+          const videoId = pathParts[pathParts.length - 1];
+          video = await videoService.getVideoByVideoId(videoId, true);
+        } catch (urlError) {
+          console.log('Could not parse target URL:', urlError);
+        }
       }
     }
     
-    if (!redirect) {
-      return res.status(404).json({ error: 'Redirect not found' });
+    // If video found, return video data directly (for direct streaming)
+    if (video) {
+      return res.json({
+        slug: slug,
+        video: video,
+        target_url: redirect?.target_url || `${config.urls.frontend}/stream/${video.video_id}`,
+        created_at: video.created_at,
+        updated_at: video.updated_at
+      });
     }
     
-    res.json(redirect);
+    // If redirect found but no video, return redirect info
+    if (redirect) {
+      return res.json(redirect);
+    }
+    
+    return res.status(404).json({ error: 'Redirect not found' });
   } catch (error) {
     console.error('Get redirect info error:', error);
     res.status(500).json({ error: 'Failed to fetch redirect info' });
@@ -81,9 +106,60 @@ router.get('/:videoId/qr-download', (req, res, next) => {
   next();
 }, authenticateToken, videoController.downloadQRCode);
 
-router.post('/upload', authenticateToken, videoController.uploadVideo);
+// Video upload route - store in backend/upload folder
+const uploadDir = path.join(__dirname, '../upload');
+ensureDirectoryExists(uploadDir).catch(() => {});
+
+router.post('/upload', authenticateToken, multer({ 
+  dest: path.join(__dirname, '../../temp-uploads'), // Temp location before moving to upload/
+  limits: { fileSize: 5 * 1024 * 1024 * 1024 } // 5GB limit
+}).fields([
+  { name: 'video', maxCount: 1 },
+  { name: 'thumbnail', maxCount: 1 }
+]), videoController.uploadVideo);
 router.post('/bulk-upload', authenticateToken, multer({ dest: 'uploads/temp' }).single('csv'), bulkUploadController.bulkUploadFromCSV);
 router.get('/upload-history', authenticateToken, bulkUploadController.getUploadHistory);
+
+// Video file replacement (with file upload) - MUST be before other /:id or /:videoId routes
+router.post('/:id/replace-video', authenticateToken, multer({ 
+  dest: tempUploadsDir,
+  limits: { fileSize: 5 * 1024 * 1024 * 1024 } // 5GB limit
+}).single('video'), videoController.replaceVideoFile);
+
+// Get video replacement diagnostic (check if video can be replaced)
+// MUST be before other /:id or /:videoId routes to avoid route conflicts
+router.get('/:id/replace-diagnostic', authenticateToken, async (req, res, next) => {
+  try {
+    console.log('[Route] ===== REPLACE DIAGNOSTIC ROUTE HIT =====');
+    console.log('[Route] ID:', req.params.id);
+    console.log('[Route] Method:', req.method);
+    console.log('[Route] Path:', req.path);
+    console.log('[Route] URL:', req.url);
+    
+    if (!videoController.getVideoReplacementDiagnostic) {
+      console.error('[Route] getVideoReplacementDiagnostic function not found in videoController');
+      return res.status(500).json({ error: 'Diagnostic function not available' });
+    }
+    
+    await videoController.getVideoReplacementDiagnostic(req, res, next);
+  } catch (error) {
+    console.error('[Route] Error in replace diagnostic route:', error);
+    console.error('[Route] Error stack:', error.stack);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Diagnostic failed', message: error.message });
+    }
+  }
+});
+
+// Test endpoint for replace diagnostic (no auth required for testing)
+router.get('/test-replace-diagnostic/:id', (req, res) => {
+  res.json({ 
+    message: 'Replace diagnostic route is accessible', 
+    id: req.params.id,
+    timestamp: new Date().toISOString(),
+    note: 'This is a test endpoint. The actual route requires authentication.'
+  });
+});
 
 // Test endpoint to verify routing
 router.get('/test-stream', (req, res) => {
@@ -236,6 +312,9 @@ router.get('/:videoId/stream', async (req, res, next) => {
 router.put('/:id', authenticateToken, videoController.updateVideo);
 router.delete('/:id', authenticateToken, videoController.deleteVideo);
 router.get('/:videoId/versions', authenticateToken, videoController.getVideoVersions);
+
+// Get video diagnostic information (must be before /:videoId route)
+router.get('/:videoId/diagnostic', videoController.getVideoDiagnostic);
 
 // Public routes - must be after specific routes
 router.get('/:videoId', videoController.getVideo);

@@ -1,15 +1,13 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Upload, Video, Image, XCircle, CheckCircle, Info, FileVideo, FileImage } from 'lucide-react';
 import api from '../services/api';
 
 function VideoUpload() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
-    course: '',
     grade: '',
     lesson: '',
-    module: '',
-    activity: '',
     topic: '',
     title: '',
     description: '',
@@ -21,6 +19,10 @@ function VideoUpload() {
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
+  const [dragActive, setDragActive] = useState(false);
+  const [thumbnailDragActive, setThumbnailDragActive] = useState(false);
+  const fileInputRef = useRef(null);
+  const thumbnailInputRef = useRef(null);
 
   const handleChange = (e) => {
     setFormData({
@@ -29,23 +31,81 @@ function VideoUpload() {
     });
   };
 
-  const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+  const handleFileChange = (file) => {
+    if (file) {
+      setFile(file);
+    }
   };
 
-  const handleThumbnailChange = (e) => {
-    const selectedFile = e.target.files[0];
-    if (selectedFile) {
-      setThumbnailFile(selectedFile);
+  const handleFileInputChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      handleFileChange(e.target.files[0]);
+    }
+  };
+
+  const handleThumbnailChange = (file) => {
+    if (file) {
+      setThumbnailFile(file);
       // Create preview
       const reader = new FileReader();
       reader.onloadend = () => {
         setThumbnailPreview(reader.result);
       };
-      reader.readAsDataURL(selectedFile);
+      reader.readAsDataURL(file);
     } else {
       setThumbnailFile(null);
       setThumbnailPreview(null);
+    }
+  };
+
+  const handleThumbnailInputChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      handleThumbnailChange(e.target.files[0]);
+    }
+  };
+
+  // Drag and drop handlers
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const droppedFile = e.dataTransfer.files[0];
+      if (droppedFile.type.startsWith('video/')) {
+        handleFileChange(droppedFile);
+      }
+    }
+  };
+
+  const handleThumbnailDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setThumbnailDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setThumbnailDragActive(false);
+    }
+  };
+
+  const handleThumbnailDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setThumbnailDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const droppedFile = e.dataTransfer.files[0];
+      if (droppedFile.type.startsWith('image/')) {
+        handleThumbnailChange(droppedFile);
+      }
     }
   };
 
@@ -104,41 +164,47 @@ function VideoUpload() {
   };
 
   return (
-    <div className="w-full px-6 sm:px-8 lg:px-10 py-8">
-      <h1 className="text-3xl font-bold mb-8">Upload Video</h1>
+    <div className="min-h-[calc(100vh-4rem)] bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 w-full overflow-y-auto">
+      <div className="w-full h-full p-6 lg:p-8">
+        {/* Header with soft gradient */}
+        <div className="mb-6">
+          <div className="inline-block bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold mb-2">Upload Video</h1>
+          </div>
+          <p className="text-slate-600 text-base">Add a new video to your library</p>
+        </div>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-blue-200 p-6 space-y-6">
+        {/* Full-width white card with rounded corners and smooth shadow */}
+        <form onSubmit={handleSubmit} className="bg-white rounded-[20px] shadow-[0_8px_24px_rgba(0,0,0,0.05)] border border-[#D9DCE3] p-6 sm:p-8 lg:p-10 space-y-6 w-full max-h-[calc(100vh-12rem)] overflow-y-auto">
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-            {error}
+          <div className="bg-gradient-to-r from-red-50 to-rose-50 border-l-4 border-red-500 text-red-700 px-5 py-4 rounded-xl flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
+            <XCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="font-semibold text-base">Upload Error</p>
+              <p className="text-sm mt-1">{error}</p>
+            </div>
           </div>
         )}
 
-        <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-            <p className="text-sm text-blue-800">
-              <strong>Hierarchy:</strong> Courses → Lessons → Modules → Activities
-            </p>
-            <p className="text-xs text-blue-700 mt-1">All fields are optional. Fill in what applies to your video.</p>
+        {/* Hierarchy block with light blue gradient, soft border, and icon */}
+        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 border border-blue-200/60 rounded-xl p-5 flex items-start gap-3 shadow-sm">
+          <div className="flex-shrink-0 mt-0.5">
+            <Info className="w-5 h-5 text-blue-600" />
           </div>
+          <div className="flex-1">
+            <p className="text-sm text-blue-800 font-semibold mb-1">
+              <strong>Hierarchy:</strong> Grade → Lesson
+            </p>
+            <p className="text-xs text-blue-700">All fields are optional. Fill in what applies to your video.</p>
+          </div>
+        </div>
 
+        {/* Form fields with improved spacing and vertical rhythm */}
+        <div className="space-y-6">
+          {/* 2-column grid for desktop, stacked for mobile */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Course
-              </label>
-              <input
-                type="text"
-                name="course"
-                value={formData.course}
-                onChange={handleChange}
-                placeholder="e.g., Course 1 or Course Name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-slate-700 mb-3">
                 Grade
               </label>
               <input
@@ -147,12 +213,12 @@ function VideoUpload() {
                 value={formData.grade}
                 onChange={handleChange}
                 placeholder="e.g., Grade 3 or Grade Name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-[14px] text-[15px] border border-[#D9DCE3] rounded-[12px] focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-[#3B82F6] bg-white transition-all duration-200 hover:border-slate-400"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-slate-700 mb-3">
                 Lesson
               </label>
               <input
@@ -161,40 +227,12 @@ function VideoUpload() {
                 value={formData.lesson}
                 onChange={handleChange}
                 placeholder="e.g., Lesson 1 or Lesson Name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-[14px] text-[15px] border border-[#D9DCE3] rounded-[12px] focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-[#3B82F6] bg-white transition-all duration-200 hover:border-slate-400"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Module
-              </label>
-              <input
-                type="text"
-                name="module"
-                value={formData.module}
-                onChange={handleChange}
-                placeholder="e.g., Module 1 or Module Name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Activity
-              </label>
-              <input
-                type="text"
-                name="activity"
-                value={formData.activity}
-                onChange={handleChange}
-                placeholder="e.g., Activity 1 or Activity Name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-slate-700 mb-3">
                 Topic
               </label>
               <input
@@ -203,14 +241,14 @@ function VideoUpload() {
                 value={formData.topic}
                 onChange={handleChange}
                 placeholder="Optional"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-[14px] text-[15px] border border-[#D9DCE3] rounded-[12px] focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-[#3B82F6] bg-white transition-all duration-200 hover:border-slate-400"
               />
             </div>
           </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-semibold text-slate-700 mb-3">
             Title
           </label>
           <input
@@ -219,12 +257,12 @@ function VideoUpload() {
             value={formData.title}
             onChange={handleChange}
             placeholder="Optional"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-4 py-[14px] text-[15px] border border-[#D9DCE3] rounded-[12px] focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-[#3B82F6] bg-white transition-all duration-200 hover:border-slate-400"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-semibold text-slate-700 mb-3">
             Description
           </label>
           <textarea
@@ -232,19 +270,20 @@ function VideoUpload() {
             rows="4"
             value={formData.description}
             onChange={handleChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Enter video description..."
+            className="w-full px-4 py-[14px] text-[15px] border border-[#D9DCE3] rounded-[12px] focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-[#3B82F6] bg-white transition-all duration-200 hover:border-slate-400 resize-none"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-semibold text-slate-700 mb-3">
             Language
           </label>
           <select
             name="language"
             value={formData.language}
             onChange={handleChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-4 py-[14px] text-[15px] border border-[#D9DCE3] rounded-[12px] focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-[#3B82F6] bg-white transition-all duration-200 hover:border-slate-400 cursor-pointer"
           >
             <option value="en">English</option>
             <option value="ar">Arabic</option>
@@ -253,103 +292,208 @@ function VideoUpload() {
           </select>
         </div>
 
+        {/* Modern drag-and-drop video upload area */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-semibold text-slate-700 mb-3">
             Video File <span className="text-red-500">*</span>
           </label>
-          <input
-            type="file"
-            accept="video/mp4,video/webm,video/quicktime"
-            onChange={handleFileChange}
-            required
-            disabled={loading}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          />
-          {file && (
-            <p className="mt-2 text-sm text-gray-600">
-              Selected: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
-            </p>
-          )}
+          <div
+            onDragEnter={handleDrag}
+            onDragLeave={handleDrag}
+            onDragOver={handleDrag}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`relative border-2 border-dashed rounded-[12px] p-8 text-center cursor-pointer transition-all duration-300 ${
+              dragActive
+                ? 'border-[#3B82F6] bg-blue-50/50 shadow-[0_0_0_4px_rgba(59,130,246,0.1)]'
+                : 'border-[#D9DCE3] bg-slate-50/50 hover:border-[#3B82F6] hover:bg-blue-50/30 hover:shadow-[0_0_0_4px_rgba(59,130,246,0.05)]'
+            } ${file ? 'border-green-300 bg-green-50/30' : ''} ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/mp4,video/webm,video/quicktime"
+              onChange={handleFileInputChange}
+              required
+              disabled={loading}
+              className="hidden"
+            />
+            {!file ? (
+              <div className="flex flex-col items-center gap-3">
+                <div className={`p-4 rounded-full bg-white shadow-sm transition-transform duration-300 ${dragActive ? 'scale-110' : ''}`}>
+                  <FileVideo className={`w-8 h-8 ${dragActive ? 'text-[#3B82F6]' : 'text-slate-400'}`} />
+                </div>
+                <div>
+                  <p className="text-[15px] font-semibold text-slate-700 mb-1">
+                    Drop your video here or click to browse
+                  </p>
+                  <p className="text-xs text-slate-500">MP4, WebM, or QuickTime formats</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center gap-3">
+                <div className="p-3 rounded-full bg-green-100">
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-semibold text-green-800">{file.name}</p>
+                  <p className="text-xs text-green-600">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFile(null);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
+                  className="ml-auto p-2 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  <XCircle className="w-5 h-5 text-red-500" />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
+        {/* Modern drag-and-drop thumbnail upload area */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Custom Thumbnail (Optional)
+          <label className="block text-sm font-semibold text-slate-700 mb-3">
+            Custom Thumbnail <span className="text-slate-400 font-normal">(Optional)</span>
           </label>
-          <input
-            type="file"
-            accept="image/jpeg,image/jpg,image/png,image/webp"
-            onChange={handleThumbnailChange}
-            disabled={loading}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            Upload a custom thumbnail image. If not provided, a thumbnail will be automatically generated from the video.
-          </p>
-          {thumbnailPreview && (
-            <div className="mt-3">
-              <p className="text-sm text-gray-600 mb-2">Preview:</p>
-              <div className="relative inline-block">
-                <img
-                  src={thumbnailPreview}
-                  alt="Thumbnail preview"
-                  className="w-48 h-32 object-cover rounded-md border border-gray-300"
-                />
-                {thumbnailFile && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    {thumbnailFile.name} ({(thumbnailFile.size / 1024).toFixed(2)} KB)
+          <div
+            onDragEnter={handleThumbnailDrag}
+            onDragLeave={handleThumbnailDrag}
+            onDragOver={handleThumbnailDrag}
+            onDrop={handleThumbnailDrop}
+            onClick={() => thumbnailInputRef.current?.click()}
+            className={`relative border-2 border-dashed rounded-[12px] p-8 text-center cursor-pointer transition-all duration-300 ${
+              thumbnailDragActive
+                ? 'border-[#3B82F6] bg-blue-50/50 shadow-[0_0_0_4px_rgba(59,130,246,0.1)]'
+                : 'border-[#D9DCE3] bg-slate-50/50 hover:border-[#3B82F6] hover:bg-blue-50/30 hover:shadow-[0_0_0_4px_rgba(59,130,246,0.05)]'
+            } ${thumbnailFile ? 'border-green-300 bg-green-50/30' : ''} ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <input
+              ref={thumbnailInputRef}
+              type="file"
+              accept="image/jpeg,image/jpg,image/png,image/webp"
+              onChange={handleThumbnailInputChange}
+              disabled={loading}
+              className="hidden"
+            />
+            {!thumbnailFile ? (
+              <div className="flex flex-col items-center gap-3">
+                <div className={`p-4 rounded-full bg-white shadow-sm transition-transform duration-300 ${thumbnailDragActive ? 'scale-110' : ''}`}>
+                  <FileImage className={`w-8 h-8 ${thumbnailDragActive ? 'text-[#3B82F6]' : 'text-slate-400'}`} />
+                </div>
+                <div>
+                  <p className="text-[15px] font-semibold text-slate-700 mb-1">
+                    Drop thumbnail image here or click to browse
                   </p>
-                )}
+                  <p className="text-xs text-slate-500">JPEG, PNG, or WebP formats</p>
+                </div>
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="flex flex-col items-center gap-4">
+                <div className="relative">
+                  <img
+                    src={thumbnailPreview}
+                    alt="Thumbnail preview"
+                    className="w-48 h-32 object-cover rounded-[12px] border-2 border-slate-200 shadow-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setThumbnailFile(null);
+                      setThumbnailPreview(null);
+                      if (thumbnailInputRef.current) thumbnailInputRef.current.value = '';
+                    }}
+                    className="absolute -top-2 -right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow-lg"
+                  >
+                    <XCircle className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-green-800">{thumbnailFile.name}</p>
+                    <p className="text-xs text-green-600">{(thumbnailFile.size / 1024).toFixed(2)} KB</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          <p className="mt-3 text-xs text-slate-500 text-center">
+            If not provided, a thumbnail will be automatically generated from the video.
+          </p>
         </div>
 
         {/* Upload Progress Bar */}
         {loading && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-700 font-medium">Uploading video...</span>
-              <span className="text-blue-600 font-semibold">{uploadProgress}%</span>
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-[12px] p-6 border border-blue-200/60 space-y-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-full">
+                  <Upload className="w-5 h-5 text-[#3B82F6] animate-pulse" />
+                </div>
+                <span className="text-slate-700 font-semibold text-[15px]">Uploading video...</span>
+              </div>
+              <span className="text-[#3B82F6] font-bold text-lg">{uploadProgress}%</span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+            <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden shadow-inner">
               <div
-                className="bg-blue-600 h-full rounded-full transition-all duration-300 ease-out"
+                className="bg-gradient-to-r from-[#3B82F6] to-blue-500 h-full rounded-full transition-all duration-300 ease-out flex items-center justify-end pr-2"
                 style={{ width: `${uploadProgress}%` }}
               >
-                <div className="h-full bg-gradient-to-r from-blue-500 to-blue-400 animate-pulse"></div>
+                {uploadProgress > 10 && (
+                  <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                )}
               </div>
             </div>
             {uploadProgress > 0 && uploadProgress < 100 && (
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-slate-600 flex items-center gap-2 justify-center">
+                <span className="animate-spin">⏳</span>
                 Please wait while your video is being uploaded. Do not close this page.
               </p>
             )}
             {uploadProgress === 100 && (
-              <p className="text-xs text-green-600 font-medium">
-                Upload complete! Processing video...
-              </p>
+              <div className="flex items-center gap-2 text-green-600 font-semibold justify-center">
+                <CheckCircle className="w-5 h-5" />
+                <p>Upload complete! Processing video...</p>
+              </div>
             )}
           </div>
         )}
 
-        <div className="flex justify-end space-x-4">
+        {/* Buttons with improved styling */}
+        <div className="flex justify-end gap-4 pt-6 border-t border-[#D9DCE3]">
           <button
             type="button"
             onClick={() => navigate('/admin')}
-            className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            className="px-6 py-3 border border-[#D9DCE3] rounded-[12px] text-slate-700 hover:bg-slate-50 hover:border-slate-300 font-semibold transition-all duration-200"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={loading}
-            className="px-6 py-2 bg-blue-200 text-blue-800 rounded-md hover:bg-blue-300 disabled:opacity-50 font-medium"
+            className="px-8 py-3 bg-[#3B82F6] text-white rounded-[12px] hover:bg-[#2563EB] disabled:opacity-50 font-bold shadow-md hover:shadow-lg hover:shadow-[#3B82F6]/30 transition-all duration-200 flex items-center gap-2"
           >
-            {loading ? 'Uploading...' : 'Upload Video'}
+            {loading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                Uploading...
+              </>
+            ) : (
+              <>
+                <Upload className="w-5 h-5" />
+                Upload Video
+              </>
+            )}
           </button>
         </div>
       </form>
+      </div>
     </div>
   );
 }
