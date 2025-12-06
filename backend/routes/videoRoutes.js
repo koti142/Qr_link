@@ -119,6 +119,8 @@ router.post('/upload', authenticateToken, multer({
 ]), videoController.uploadVideo);
 router.post('/bulk-upload', authenticateToken, multer({ dest: 'uploads/temp' }).single('csv'), bulkUploadController.bulkUploadFromCSV);
 router.get('/upload-history', authenticateToken, bulkUploadController.getUploadHistory);
+router.delete('/upload-history/:id', authenticateToken, bulkUploadController.deleteUploadHistory);
+router.delete('/upload-history', authenticateToken, bulkUploadController.bulkDeleteUploadHistory);
 
 // Video file replacement (with file upload) - MUST be before other /:id or /:videoId routes
 router.post('/:id/replace-video', authenticateToken, multer({ 

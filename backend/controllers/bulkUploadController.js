@@ -1222,10 +1222,11 @@ export async function bulkUploadFromCSV(req, res) {
           // Continue without QR code
         }
 
-        // Handle thumbnail
+        // Handle thumbnail from CSV - supports URLs, local paths, and files in thumbnails folder
         let thumbnailUrl = null;
         try {
           if (thumbnailFilePath && thumbnailFilePath.trim() !== '') {
+            console.log(`[Row ${rowNumber}] Processing thumbnail: ${thumbnailFilePath}`);
             // Check if it's a URL
             if (thumbnailFilePath.startsWith('http://') || thumbnailFilePath.startsWith('https://')) {
               // It's a URL - use it directly
@@ -1251,41 +1252,98 @@ export async function bulkUploadFromCSV(req, res) {
                 const possibleThumbnailPath = path.join(thumbnailsDir, thumbnailName);
                 
                 if (fsSync.existsSync(possibleThumbnailPath)) {
-                  thumbnailUrl = `/thumbnails/${thumbnailName}`;
-                  console.log(`[Row ${rowNumber}] ✓ Found thumbnail in thumbnails folder: ${thumbnailUrl}`);
-                } else if (fsSync.existsSync(thumbnailFilePath)) {
-                  // Use custom thumbnail from local path
-                  const thumbnailExt = path.extname(thumbnailFilePath).toLowerCase();
-                  if (['.jpg', '.jpeg', '.png', '.webp'].includes(thumbnailExt)) {
-                    const thumbnailBuffer = await fs.readFile(thumbnailFilePath);
-                    const thumbnailFile = {
-                      buffer: thumbnailBuffer,
-                      originalname: path.basename(thumbnailFilePath),
-                      mimetype: thumbnailExt === '.png' ? 'image/png' : 
-                               thumbnailExt === '.webp' ? 'image/webp' : 'image/jpeg'
-                    };
-                    thumbnailUrl = await thumbnailService.saveUploadedThumbnail(thumbnailFile, videoId);
-                    console.log(`[Row ${rowNumber}] ✓ Custom thumbnail saved: ${thumbnailUrl}`);
+                  // Copy thumbnail to use videoId as filename
+                  const thumbnailExt = path.extname(possibleThumbnailPath) || '.jpg';
+                  const targetThumbnailPath = path.join(thumbnailsDir, `${videoId}${thumbnailExt}`);
+                  try {
+                    await fs.copyFile(possibleThumbnailPath, targetThumbnailPath);
+                    thumbnailUrl = `/thumbnails/${videoId}${thumbnailExt}`;
+                    console.log(`[Row ${rowNumber}] ✓ Copied thumbnail to use videoId: ${thumbnailUrl}`);
+                  } catch (copyError) {
+                    // If copy fails, use original path
+                    thumbnailUrl = `/thumbnails/${thumbnailName}`;
+                    console.warn(`[Row ${rowNumber}] ⚠ Failed to copy thumbnail, using original: ${thumbnailUrl}`);
                   }
                 } else {
-                  // Try to construct path from thumbnails folder
-                  // Check if it's just a filename or has thumbnails/ prefix
-                  const thumbnailName = path.basename(thumbnailFilePath);
-                  const thumbnailsDir = path.join(__dirname, '../../video-storage/thumbnails');
-                  const possiblePath = path.join(thumbnailsDir, thumbnailName);
+                  // Try multiple path resolution strategies for local thumbnail files
+                  let resolvedThumbnailPath = null;
                   
-                  if (fsSync.existsSync(possiblePath)) {
-                    thumbnailUrl = `/thumbnails/${thumbnailName}`;
-                    console.log(`[Row ${rowNumber}] ✓ Found thumbnail in thumbnails folder: ${thumbnailUrl}`);
+                  // Strategy 1: Check if it's an absolute path
+                  if (path.isAbsolute(thumbnailFilePath)) {
+                    if (fsSync.existsSync(thumbnailFilePath)) {
+                      resolvedThumbnailPath = thumbnailFilePath;
+                    }
                   } else {
-                    // Try with full path
+                    // Strategy 2: Try relative to project root
+                    const projectRoot = path.join(__dirname, '../../');
+                    const relativePath = path.resolve(projectRoot, thumbnailFilePath);
+                    if (fsSync.existsSync(relativePath)) {
+                      resolvedThumbnailPath = relativePath;
+                    }
+                    
+                    // Strategy 3: Try in thumbnails folder (if not found yet)
+                    if (!resolvedThumbnailPath) {
+                      const thumbnailsDir = path.join(__dirname, '../../video-storage/thumbnails');
+                      const thumbnailName = path.basename(thumbnailFilePath);
+                      const thumbnailsPath = path.join(thumbnailsDir, thumbnailName);
+                      if (fsSync.existsSync(thumbnailsPath)) {
+                        // Copy thumbnail to use videoId as filename
+                        const thumbnailExt = path.extname(thumbnailsPath) || '.jpg';
+                        const targetThumbnailPath = path.join(thumbnailsDir, `${videoId}${thumbnailExt}`);
+                        try {
+                          await fs.copyFile(thumbnailsPath, targetThumbnailPath);
+                          thumbnailUrl = `/thumbnails/${videoId}${thumbnailExt}`;
+                          console.log(`[Row ${rowNumber}] ✓ Copied thumbnail to use videoId: ${thumbnailUrl}`);
+                        } catch (copyError) {
+                          // If copy fails, use original path
+                          thumbnailUrl = `/thumbnails/${thumbnailName}`;
+                          console.warn(`[Row ${rowNumber}] ⚠ Failed to copy thumbnail, using original: ${thumbnailUrl}`);
+                        }
+                      }
+                    }
+                  }
+                  
+                  // If we found a local file, save it using the thumbnail service
+                  if (resolvedThumbnailPath && !thumbnailUrl) {
+                    const thumbnailExt = path.extname(resolvedThumbnailPath).toLowerCase();
+                    if (['.jpg', '.jpeg', '.png', '.webp'].includes(thumbnailExt)) {
+                      try {
+                        const thumbnailBuffer = await fs.readFile(resolvedThumbnailPath);
+                        const thumbnailFile = {
+                          buffer: thumbnailBuffer,
+                          originalname: `${videoId}${thumbnailExt}`, // Use videoId as filename for consistency
+                          mimetype: thumbnailExt === '.png' ? 'image/png' : 
+                                   thumbnailExt === '.webp' ? 'image/webp' : 'image/jpeg'
+                        };
+                        thumbnailUrl = await thumbnailService.saveUploadedThumbnail(thumbnailFile, videoId);
+                        console.log(`[Row ${rowNumber}] ✓ Custom thumbnail saved from: ${resolvedThumbnailPath} -> ${thumbnailUrl}`);
+                        console.log(`[Row ${rowNumber}] ✓ Thumbnail saved with videoId: ${videoId}, URL: ${thumbnailUrl}`);
+                      } catch (saveError) {
+                        console.warn(`[Row ${rowNumber}] ⚠ Failed to save thumbnail from ${resolvedThumbnailPath}:`, saveError.message);
+                      }
+                    } else {
+                      console.warn(`[Row ${rowNumber}] ⚠ Invalid thumbnail extension: ${thumbnailExt}`);
+                    }
+                  } else if (!thumbnailUrl) {
+                    // If still not found, try one more time in thumbnails folder with full path
+                    const thumbnailsDir = path.join(__dirname, '../../video-storage/thumbnails');
                     const possiblePath2 = path.join(thumbnailsDir, thumbnailFilePath);
                     if (fsSync.existsSync(possiblePath2)) {
-                      thumbnailUrl = `/thumbnails/${thumbnailFilePath}`;
-                      console.log(`[Row ${rowNumber}] ✓ Found thumbnail at: ${thumbnailUrl}`);
+                      // Copy thumbnail to use videoId as filename
+                      const thumbnailExt = path.extname(possiblePath2) || '.jpg';
+                      const targetThumbnailPath = path.join(thumbnailsDir, `${videoId}${thumbnailExt}`);
+                      try {
+                        await fs.copyFile(possiblePath2, targetThumbnailPath);
+                        thumbnailUrl = `/thumbnails/${videoId}${thumbnailExt}`;
+                        console.log(`[Row ${rowNumber}] ✓ Copied thumbnail to use videoId: ${thumbnailUrl}`);
+                      } catch (copyError) {
+                        // If copy fails, use original path
+                        thumbnailUrl = `/thumbnails/${thumbnailFilePath}`;
+                        console.warn(`[Row ${rowNumber}] ⚠ Failed to copy thumbnail, using original: ${thumbnailUrl}`);
+                      }
                     } else {
                       console.warn(`[Row ${rowNumber}] ⚠ Thumbnail file not found: ${thumbnailFilePath}`);
-                      console.warn(`[Row ${rowNumber}]   Checked paths: ${possiblePath}, ${possiblePath2}`);
+                      console.warn(`[Row ${rowNumber}]   Checked paths: ${resolvedThumbnailPath || 'N/A'}, ${possiblePath2}`);
                     }
                   }
                 }
@@ -1308,6 +1366,8 @@ export async function bulkUploadFromCSV(req, res) {
           if (!thumbnailUrl) {
             thumbnailUrl = '/thumbnails/default.png';
             console.log(`[Row ${rowNumber}] ✓ Using default thumbnail: ${thumbnailUrl}`);
+          } else {
+            console.log(`[Row ${rowNumber}] ✓ Final thumbnail URL: ${thumbnailUrl}`);
           }
         } catch (thumbnailError) {
           console.warn(`[Row ${rowNumber}] ⚠ Thumbnail processing failed:`, thumbnailError.message);
@@ -1316,7 +1376,34 @@ export async function bulkUploadFromCSV(req, res) {
           thumbnailUrl = '/thumbnails/default.png';
           console.log(`[Row ${rowNumber}] ✓ Using default thumbnail after error: ${thumbnailUrl}`);
         }
+        
+        // Ensure thumbnailUrl is properly formatted and uses videoId as filename
+        if (thumbnailUrl && !thumbnailUrl.startsWith('http://') && !thumbnailUrl.startsWith('https://')) {
+          // If thumbnail was saved using saveUploadedThumbnail, it should already be in format /thumbnails/{videoId}.{ext}
+          // But if it's just a path reference, we need to ensure it uses videoId
+          if (!thumbnailUrl.includes(videoId) && thumbnailUrl.startsWith('/thumbnails/')) {
+            // Extract extension from current path
+            const currentExt = path.extname(thumbnailUrl) || '.jpg';
+            // Update to use videoId as filename
+            thumbnailUrl = `/thumbnails/${videoId}${currentExt}`;
+            console.log(`[Row ${rowNumber}] ✓ Updated thumbnail URL to use videoId: ${thumbnailUrl}`);
+          } else if (!thumbnailUrl.startsWith('/thumbnails/')) {
+            // If it doesn't start with /thumbnails/, normalize it
+            if (!thumbnailUrl.startsWith('/')) {
+              thumbnailUrl = `/${thumbnailUrl}`;
+            }
+            // If it's not already in thumbnails folder, move it there with videoId
+            if (!thumbnailUrl.startsWith('/thumbnails/')) {
+              const ext = path.extname(thumbnailUrl) || '.jpg';
+              thumbnailUrl = `/thumbnails/${videoId}${ext}`;
+              console.log(`[Row ${rowNumber}] ✓ Normalized thumbnail URL to: ${thumbnailUrl}`);
+            }
+          }
+        }
 
+        // Final verification: Log thumbnail URL before saving to database
+        console.log(`[Row ${rowNumber}] 📸 Thumbnail URL to be saved in database: ${thumbnailUrl || 'NULL'}`);
+        
         // Get video duration (placeholder - in production, use ffprobe)
         const duration = 0;
 
@@ -1365,7 +1452,7 @@ export async function bulkUploadFromCSV(req, res) {
           filePath: relativePath, // REQUIRED - ensure it's never null
           streamingUrl: streamingUrl, // REQUIRED - ensure it's never null
           qrUrl: qrUrl || null,
-          thumbnailUrl: thumbnailUrl || null,
+          thumbnailUrl: thumbnailUrl || null, // Thumbnail URL saved to database
           redirectSlug: shortSlug, // REQUIRED and UNIQUE - ensure it's never null
           duration: 0, // Placeholder
           size: size || 0,
@@ -1909,6 +1996,109 @@ export async function getUploadHistory(req, res) {
       error: 'Failed to fetch upload history', 
       message: error.message,
       code: error.code 
+    });
+  }
+}
+
+/**
+ * Delete a single upload history record
+ */
+export async function deleteUploadHistory(req, res) {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({ error: 'Upload history ID is required' });
+    }
+
+    // Check if table exists
+    try {
+      await pool.execute('SELECT 1 FROM csv_upload_history LIMIT 1');
+    } catch (tableError) {
+      if (tableError.code === 'ER_NO_SUCH_TABLE') {
+        return res.status(404).json({ error: 'Upload history table not found' });
+      }
+      throw tableError;
+    }
+
+    // Check if record exists
+    const [records] = await pool.execute(
+      'SELECT id FROM csv_upload_history WHERE id = ?',
+      [id]
+    );
+
+    if (records.length === 0) {
+      return res.status(404).json({ error: 'Upload history record not found' });
+    }
+
+    // Delete the record
+    await pool.execute(
+      'DELETE FROM csv_upload_history WHERE id = ?',
+      [id]
+    );
+
+    res.json({ 
+      success: true, 
+      message: 'Upload history record deleted successfully',
+      deletedId: id
+    });
+  } catch (error) {
+    console.error('Error deleting upload history:', error);
+    res.status(500).json({ 
+      error: 'Failed to delete upload history', 
+      message: error.message 
+    });
+  }
+}
+
+/**
+ * Bulk delete upload history records
+ */
+export async function bulkDeleteUploadHistory(req, res) {
+  try {
+    const { ids } = req.body;
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Array of IDs is required' });
+    }
+
+    // Check if table exists
+    try {
+      await pool.execute('SELECT 1 FROM csv_upload_history LIMIT 1');
+    } catch (tableError) {
+      if (tableError.code === 'ER_NO_SUCH_TABLE') {
+        return res.status(404).json({ error: 'Upload history table not found' });
+      }
+      throw tableError;
+    }
+
+    // Validate all IDs are numbers
+    const validIds = ids.filter(id => Number.isInteger(Number(id)) && Number(id) > 0);
+    
+    if (validIds.length === 0) {
+      return res.status(400).json({ error: 'No valid IDs provided' });
+    }
+
+    // Create placeholders for the IN clause
+    const placeholders = validIds.map(() => '?').join(',');
+    
+    // Delete the records
+    const [result] = await pool.execute(
+      `DELETE FROM csv_upload_history WHERE id IN (${placeholders})`,
+      validIds
+    );
+
+    res.json({ 
+      success: true, 
+      message: `${result.affectedRows} upload history record(s) deleted successfully`,
+      deletedCount: result.affectedRows,
+      requestedCount: validIds.length
+    });
+  } catch (error) {
+    console.error('Error bulk deleting upload history:', error);
+    res.status(500).json({ 
+      error: 'Failed to bulk delete upload history', 
+      message: error.message 
     });
   }
 }

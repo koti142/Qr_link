@@ -48,11 +48,37 @@ const videoPlayerStyles = `
   .video-js .vjs-button:hover {
     opacity: 0.8;
   }
-  /* Progress bar styling */
+  /* Play/Pause button - ensure it toggles correctly */
+  .video-js .vjs-play-control {
+    cursor: pointer;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+  .video-js .vjs-play-control.vjs-playing .vjs-icon-placeholder::before {
+    content: "\\f101"; /* Pause icon */
+  }
+  .video-js .vjs-play-control.vjs-paused .vjs-icon-placeholder::before {
+    content: "\\f101"; /* Play icon */
+  }
+  /* Progress bar styling - positioned at top */
   .video-js .vjs-progress-control {
-    flex: 1;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
     height: 4px;
-    margin: 0 8px;
+    width: 100%;
+    margin: 0;
+    z-index: 10;
+    cursor: pointer;
+    order: 0 !important;
+  }
+  .video-js .vjs-progress-control:hover {
+    height: 6px;
+  }
+  .video-js .vjs-progress-control:hover .vjs-progress-holder {
+    height: 6px;
   }
   .video-js .vjs-progress-holder {
     height: 4px;
@@ -110,15 +136,60 @@ const videoPlayerStyles = `
     order: 3;
     margin-left: 4px;
   }
-  /* Control bar layout - left side */
-  .video-js .vjs-control-bar > .vjs-play-control,
-  .video-js .vjs-control-bar > .vjs-volume-panel,
-  .video-js .vjs-control-bar > .vjs-current-time,
-  .video-js .vjs-control-bar > .vjs-time-divider,
-  .video-js .vjs-control-bar > .vjs-duration,
-  .video-js .vjs-control-bar > .vjs-progress-control {
+  /* Control bar layout - properly arranged controls */
+  .video-js .vjs-control-bar {
+    display: flex !important;
+    align-items: center !important;
+    padding: 0 16px !important;
+    height: 52px !important;
+  }
+  /* Play/Pause button - first on left */
+  .video-js .vjs-control-bar > .vjs-play-control {
     order: 1;
-    margin-right: 8px;
+    margin-right: 12px;
+    min-width: 40px;
+    height: 40px;
+    display: flex !important;
+    visibility: visible !important;
+  }
+  /* Volume panel - second */
+  .video-js .vjs-control-bar > .vjs-volume-panel {
+    order: 2;
+    margin-right: 12px;
+    display: flex !important;
+    visibility: visible !important;
+  }
+  /* Current time - third */
+  .video-js .vjs-control-bar > .vjs-current-time {
+    order: 3;
+    margin-right: 4px;
+    display: flex !important;
+    visibility: visible !important;
+  }
+  /* Time divider "/" - fourth */
+  .video-js .vjs-control-bar > .vjs-time-divider {
+    order: 4;
+    margin: 0 4px;
+    display: flex !important;
+    visibility: visible !important;
+  }
+  /* Duration - fifth */
+  .video-js .vjs-control-bar > .vjs-duration {
+    order: 5;
+    margin-left: 4px;
+    display: flex !important;
+    visibility: visible !important;
+  }
+  /* Progress bar is positioned absolutely at top, not in flex order */
+  .video-js .vjs-control-bar > .vjs-progress-control {
+    order: 0;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    margin: 0;
+    height: 4px;
   }
   /* Spacer to push controls to right */
   .video-js .vjs-control-bar > .vjs-spacer {
@@ -127,11 +198,49 @@ const videoPlayerStyles = `
     min-width: 0;
   }
   /* Control bar - right side controls */
-  .video-js .vjs-control-bar > .vjs-playback-rate,
-  .video-js .vjs-control-bar > .vjs-subs-caps-button,
-  .video-js .vjs-control-bar > .vjs-picture-in-picture-control,
+  /* Show playback rate button - make it visible and functional */
+  .video-js .vjs-control-bar > .vjs-playback-rate {
+    order: 6;
+    margin-left: 8px;
+    display: flex !important; /* Always visible */
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    position: relative;
+  }
+  /* Display selected speed below button */
+  .video-js .vjs-control-bar > .vjs-playback-rate::after {
+    content: attr(data-selected-speed);
+    position: absolute;
+    bottom: -18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.85);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0.9;
+    font-weight: 500;
+  }
+  /* When menu is open, make it more prominent */
+  .video-js .vjs-control-bar > .vjs-playback-rate.vjs-menu-button-open {
+    z-index: 1000;
+  }
+  .video-js .vjs-control-bar > .vjs-playback-rate.vjs-menu-button-open .vjs-menu {
+    z-index: 1001;
+  }
+  /* Hide captions button completely */
+  .video-js .vjs-control-bar > .vjs-subs-caps-button {
+    display: none !important;
+    visibility: hidden !important;
+  }
+  .video-js .vjs-control-bar > .vjs-picture-in-picture-control {
+    order: 7;
+    margin-left: 4px;
+  }
   .video-js .vjs-control-bar > .vjs-fullscreen-control {
-    order: 3;
+    order: 8;
     margin-left: 4px;
   }
   /* Ensure all buttons are visible and properly sized */
@@ -157,24 +266,6 @@ const videoPlayerStyles = `
   /* Hide audio track button if not needed */
   .video-js .vjs-audio-button:not(.vjs-hidden) {
     display: none;
-  }
-  /* Progress bar at top - YouTube style */
-  .video-js .vjs-progress-control {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 4px;
-    width: 100%;
-    margin: 0;
-    z-index: 10;
-    cursor: pointer;
-  }
-  .video-js .vjs-progress-control:hover {
-    height: 6px;
-  }
-  .video-js .vjs-progress-control:hover .vjs-progress-holder {
-    height: 6px;
   }
   /* Control bar positioning */
   .video-js .vjs-control-bar {
@@ -250,6 +341,11 @@ const videoPlayerStyles = `
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     backdrop-filter: blur(10px);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    cursor: pointer !important;
+    pointer-events: auto !important;
+    display: block !important;
+    visibility: visible !important;
+    z-index: 100 !important;
   }
   .video-js .vjs-big-play-button:hover {
     background: rgba(0, 0, 0, 0.85);
@@ -257,10 +353,22 @@ const videoPlayerStyles = `
     transform: translate(-50%, -50%) scale(1.1);
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
   }
+  .video-js .vjs-big-play-button:active {
+    transform: translate(-50%, -50%) scale(0.95);
+  }
+  /* Hide big play button when playing */
+  .video-js.vjs-playing .vjs-big-play-button {
+    display: none !important;
+  }
+  /* Show big play button when paused */
+  .video-js.vjs-paused .vjs-big-play-button {
+    display: block !important;
+  }
   .video-js .vjs-big-play-button .vjs-icon-placeholder:before {
     font-size: 32px;
     color: #fff;
     text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
   }
   /* Always show controls - YouTube style */
   .video-js.vjs-user-inactive .vjs-control-bar {
@@ -410,22 +518,22 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null, vide
       autoplay: autoplay,
       playbackRates: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2], // More playback speed options
       liveui: true, // Enable live UI for live streams
-      // YouTube-like control bar layout - controls on right side
+      // YouTube-like control bar layout - properly arranged controls
       controlBar: {
         children: [
-          'playToggle',
-          'volumePanel',
-          'currentTimeDisplay',
-          'timeDivider',
-          'durationDisplay',
-          'progressControl',
+          'playToggle', // Play/Pause button (automatically toggles)
+          'volumePanel', // Volume control
+          'currentTimeDisplay', // Current time
+          'timeDivider', // Time separator "/"
+          'durationDisplay', // Total duration
+          'progressControl', // Progress bar
           'liveDisplay',
           'remainingTimeDisplay',
           'spacer', // Flexible spacer to push controls to right
-          'playbackRateMenuButton', // Playback speed (Settings)
-          'subsCapsButton', // Closed Captions
+          'playbackRateMenuButton', // Playback speed (hidden by default, shown when clicked)
           'pictureInPictureToggle', // Picture-in-Picture
           'fullscreenToggle' // Fullscreen
+          // Removed: 'subsCapsButton' (Closed Captions - not needed)
         ]
       },
       html5: {
@@ -510,6 +618,9 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null, vide
         playerEl.style.objectFit = 'contain';
       }
 
+      // Fix Big Play Button - ensure it works
+     
+
       // Ensure video element also fills and configure security
       const videoEl = player.el().querySelector('video');
       if (videoEl) {
@@ -537,20 +648,287 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null, vide
       // Ensure all control buttons are visible and properly styled
       const controlBar = player.controlBar;
       if (controlBar) {
-        // Show playback rate button (Settings menu)
-        const playbackRateBtn = controlBar.getChild('playbackRateMenuButton');
-        if (playbackRateBtn) {
-          playbackRateBtn.show();
+        // Ensure play/pause toggle is visible and working
+        const playToggle = controlBar.getChild('playToggle');
+        if (playToggle) {
+          playToggle.show();
+          
+          // Ensure play/pause button is clickable and works
+          const playBtn = playToggle.el();
+          if (playBtn) {
+            playBtn.style.pointerEvents = 'auto';
+            playBtn.style.cursor = 'pointer';
+            playBtn.style.display = 'flex';
+            playBtn.style.visibility = 'visible';
+            
+            // Add explicit click handler to ensure it works
+            playBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              try {
+                if (player.paused()) {
+                  player.play().catch(err => {
+                    console.error('Play error:', err);
+                  });
+                } else {
+                  player.pause();
+                }
+              } catch (err) {
+                console.error('Play/Pause error:', err);
+              }
+            });
+          }
+          
+          // Ensure play/pause button toggles correctly on state change
+          player.on('play', () => {
+            const playBtn = playToggle.el();
+            if (playBtn) {
+              playBtn.classList.remove('vjs-paused');
+              playBtn.classList.add('vjs-playing');
+            }
+            // Hide big play button when playing
+            const bigPlayBtn = player.getChild('bigPlayButton');
+            if (bigPlayBtn) {
+              bigPlayBtn.hide();
+            }
+          });
+          player.on('pause', () => {
+            const playBtn = playToggle.el();
+            if (playBtn) {
+              playBtn.classList.remove('vjs-playing');
+              playBtn.classList.add('vjs-paused');
+            }
+            // Show big play button when paused
+            const bigPlayBtn = player.getChild('bigPlayButton');
+            if (bigPlayBtn) {
+              bigPlayBtn.show();
+            }
+          });
         }
 
-        // Show captions button
+        // Add playback rate button dynamically - show it and make it functional
+        const playbackRateBtn = controlBar.getChild('playbackRateMenuButton');
+        if (playbackRateBtn) {
+          // Show the button (it will be visible)
+          playbackRateBtn.show();
+          
+          // Ensure it's clickable and functional
+          const playbackRateEl = playbackRateBtn.el();
+          if (playbackRateEl) {
+            playbackRateEl.style.pointerEvents = 'auto';
+            playbackRateEl.style.cursor = 'pointer';
+            playbackRateEl.style.display = 'flex';
+            playbackRateEl.style.visibility = 'visible';
+            
+            // Get all control bar children to hide/show them
+            const allControls = [
+              controlBar.getChild('playToggle'),
+              controlBar.getChild('volumePanel'),
+              controlBar.getChild('currentTimeDisplay'),
+              controlBar.getChild('timeDivider'),
+              controlBar.getChild('durationDisplay'),
+              controlBar.getChild('progressControl'),
+              controlBar.getChild('liveDisplay'),
+              controlBar.getChild('remainingTimeDisplay'),
+              controlBar.getChild('pictureInPictureToggle'),
+              controlBar.getChild('fullscreenToggle')
+            ].filter(Boolean); // Remove null/undefined
+            
+            // Function to hide all controls except speed button
+            const hideAllControls = () => {
+              console.log('[Speed Button] hideAllControls called, hiding', allControls.length, 'controls');
+              let hiddenCount = 0;
+              allControls.forEach((control, index) => {
+                if (control) {
+                  try {
+                    control.hide();
+                    hiddenCount++;
+                    const controlEl = control.el();
+                    if (controlEl) {
+                      controlEl.style.display = 'none';
+                      controlEl.style.visibility = 'hidden';
+                    }
+                  } catch (err) {
+                    console.error('[Speed Button] Error hiding control', index, err);
+                  }
+                }
+              });
+              console.log('[Speed Button] Hidden', hiddenCount, 'controls');
+            };
+            
+            // Function to show all controls
+            const showAllControls = () => {
+              console.log('[Speed Button] showAllControls called, showing', allControls.length, 'controls');
+              let shownCount = 0;
+              allControls.forEach((control, index) => {
+                if (control) {
+                  try {
+                    control.show();
+                    shownCount++;
+                    const controlEl = control.el();
+                    if (controlEl) {
+                      controlEl.style.display = '';
+                      controlEl.style.visibility = '';
+                    }
+                  } catch (err) {
+                    console.error('[Speed Button] Error showing control', index, err);
+                  }
+                }
+              });
+              console.log('[Speed Button] Shown', shownCount, 'controls');
+            };
+            
+            // Update selected speed display
+            const updateSpeedDisplay = (speed) => {
+              const speedText = speed === 1 ? '1x' : `${speed}x`;
+              playbackRateEl.setAttribute('data-selected-speed', speedText);
+            };
+            
+            // Initialize with current playback rate
+            updateSpeedDisplay(player.playbackRate());
+            
+            // Listen for playback rate changes
+            player.on('ratechange', () => {
+              updateSpeedDisplay(player.playbackRate());
+            });
+            
+            // Diagnostic logging
+            console.log('[Speed Button] Initializing speed button controls');
+            console.log('[Speed Button] Found controls:', allControls.length);
+            console.log('[Speed Button] Playback rate button:', playbackRateBtn);
+            
+            // Use MutationObserver to watch for class changes on the button
+            const observer = new MutationObserver((mutations) => {
+              mutations.forEach((mutation) => {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                  const isMenuOpen = playbackRateEl.classList.contains('vjs-menu-button-open');
+                  console.log('[Speed Button] Menu state changed:', isMenuOpen ? 'OPEN' : 'CLOSED');
+                  
+                  if (isMenuOpen) {
+                    console.log('[Speed Button] Hiding all controls');
+                    hideAllControls();
+                  } else {
+                    console.log('[Speed Button] Showing all controls');
+                    showAllControls();
+                    updateSpeedDisplay(player.playbackRate());
+                  }
+                }
+              });
+            });
+            
+            // Start observing the button element for class changes
+            observer.observe(playbackRateEl, {
+              attributes: true,
+              attributeFilter: ['class']
+            });
+            
+            // Ensure menu works
+            const menu = playbackRateBtn.getChild('menu');
+            if (menu) {
+              console.log('[Speed Button] Menu found:', menu);
+              
+              // When menu opens, hide all other controls
+              menu.on('show', () => {
+                console.log('[Speed Button] Menu show event fired');
+                playbackRateBtn.show();
+                hideAllControls();
+              });
+              
+              // When menu closes, show all controls again
+              menu.on('hide', () => {
+                console.log('[Speed Button] Menu hide event fired');
+                showAllControls();
+                updateSpeedDisplay(player.playbackRate());
+              });
+              
+              // Listen for speed selection
+              menu.on('change', () => {
+                console.log('[Speed Button] Menu change event fired');
+                setTimeout(() => {
+                  showAllControls();
+                  updateSpeedDisplay(player.playbackRate());
+                }, 100);
+              });
+              
+              // Listen to menu items being clicked
+              const menuContent = menu.getChild('menuContent');
+              if (menuContent) {
+                console.log('[Speed Button] Menu content found');
+                menuContent.on('click', (e) => {
+                  console.log('[Speed Button] Menu item clicked');
+                  setTimeout(() => {
+                    showAllControls();
+                    updateSpeedDisplay(player.playbackRate());
+                  }, 100);
+                });
+              } else {
+                console.warn('[Speed Button] Menu content not found');
+              }
+            } else {
+              console.warn('[Speed Button] Menu not found');
+            }
+            
+            // Also listen to button click to handle menu toggle
+            playbackRateBtn.on('click', () => {
+              console.log('[Speed Button] Button clicked');
+              // Use a small delay to let Video.js update the class
+              setTimeout(() => {
+                const isMenuOpen = playbackRateEl.classList.contains('vjs-menu-button-open');
+                console.log('[Speed Button] Menu open state after click:', isMenuOpen);
+                if (isMenuOpen) {
+                  hideAllControls();
+                } else {
+                  showAllControls();
+                }
+              }, 100);
+            });
+            
+            // Listen for clicks outside to close menu and show controls
+            const handleDocumentClick = (e) => {
+              if (playbackRateEl && !playbackRateEl.contains(e.target)) {
+                const isMenuOpen = playbackRateEl.classList.contains('vjs-menu-button-open');
+                if (isMenuOpen) {
+                  console.log('[Speed Button] Click outside detected, menu will close');
+                  setTimeout(() => {
+                    showAllControls();
+                  }, 100);
+                }
+              }
+            };
+            document.addEventListener('click', handleDocumentClick);
+            
+            // Cleanup on player dispose
+            player.on('dispose', () => {
+              console.log('[Speed Button] Cleaning up');
+              observer.disconnect();
+              document.removeEventListener('click', handleDocumentClick);
+            });
+            
+            // Also listen for rate changes to update display
+            player.on('ratechange', () => {
+              console.log('[Speed Button] Rate changed to:', player.playbackRate());
+              updateSpeedDisplay(player.playbackRate());
+            });
+          }
+        } else {
+          // If button doesn't exist, create it dynamically
+          try {
+            const PlaybackRateMenuButton = videojs.getComponent('PlaybackRateMenuButton');
+            if (PlaybackRateMenuButton) {
+              const newPlaybackRateBtn = new PlaybackRateMenuButton(player, {
+                playbackRates: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+              });
+              controlBar.addChild(newPlaybackRateBtn, {}, 6); // Add at position 6
+              newPlaybackRateBtn.show();
+            }
+          } catch (err) {
+            console.warn('Could not add playback rate button dynamically:', err);
+          }
+        }
+
+        // Remove captions button completely (not in controlBar children anymore)
         const captionsBtn = controlBar.getChild('subsCapsButton');
         if (captionsBtn) {
-          captionsBtn.show();
-          // Only show if captions are available
-          if (!captions || captions.length === 0) {
-            captionsBtn.hide();
-          }
+          captionsBtn.hide();
         }
 
         // Show Picture-in-Picture button (even if disabled)
@@ -574,6 +952,37 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null, vide
         const fullscreenBtn = controlBar.getChild('fullscreenToggle');
         if (fullscreenBtn) {
           fullscreenBtn.show();
+        }
+
+        // Ensure time displays are visible
+        const currentTime = controlBar.getChild('currentTimeDisplay');
+        const duration = controlBar.getChild('durationDisplay');
+        const timeDivider = controlBar.getChild('timeDivider');
+        if (currentTime) currentTime.show();
+        if (duration) duration.show();
+        if (timeDivider) timeDivider.show();
+
+        // Ensure volume panel is visible and working
+        const volumePanel = controlBar.getChild('volumePanel');
+        if (volumePanel) {
+          volumePanel.show();
+          
+          // Ensure volume controls are clickable
+          const volumeEl = volumePanel.el();
+          if (volumeEl) {
+            volumeEl.style.pointerEvents = 'auto';
+            volumeEl.style.cursor = 'pointer';
+            
+            // Get volume button and slider
+            const volumeButton = volumePanel.getChild('volumeControl');
+            if (volumeButton) {
+              const volumeBtnEl = volumeButton.el();
+              if (volumeBtnEl) {
+                volumeBtnEl.style.pointerEvents = 'auto';
+                volumeBtnEl.style.cursor = 'pointer';
+              }
+            }
+          }
         }
       }
 
