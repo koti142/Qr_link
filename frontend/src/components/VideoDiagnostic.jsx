@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AlertCircle, CheckCircle, XCircle, Loader, RefreshCw, Copy, ExternalLink } from 'lucide-react';
 import api from '../services/api';
+import { getApiUrl } from '../utils/backendUrl.js';
 
 function VideoDiagnostic({ videoId, streamUrl, onClose }) {
   const [running, setRunning] = useState(false);
@@ -21,8 +22,8 @@ function VideoDiagnostic({ videoId, streamUrl, onClose }) {
     try {
       // Check 1: Backend API connectivity
       try {
-        const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
-        const healthCheck = await fetch(`${backendUrl}/api/health`, {
+        const apiUrl = getApiUrl();
+        const healthCheck = await fetch(`${apiUrl}/health`, {
           method: 'GET',
           signal: AbortSignal.timeout(5000)
         });

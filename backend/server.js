@@ -23,19 +23,40 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    // Allow requests from frontend URL or any localhost/127.0.0.1
-    const allowedOrigins = [
-      config.urls.frontend,
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://127.0.0.1:5173',
-      'http://127.0.0.1:3000'
-    ];
+    // In production, allow specific origins; in development, allow all
+    const isProduction = config.nodeEnv === 'production';
     
-    if (allowedOrigins.includes(origin) || origin.includes('localhost') || origin.includes('127.0.0.1')) {
-      callback(null, true);
+    if (isProduction) {
+      // Production: Allow configured frontend URL and same-origin requests
+      const allowedOrigins = [
+        config.urls.frontend,
+        // Allow same origin (for when frontend and backend are on same domain)
+        origin.startsWith('http://') || origin.startsWith('https://') ? origin : undefined
+      ].filter(Boolean);
+      
+      // Check if origin matches frontend URL or is same domain
+      const originMatches = allowedOrigins.some(allowed => {
+        try {
+          const allowedUrl = new URL(allowed);
+          const originUrl = new URL(origin);
+          // Allow exact match or same domain
+          return allowedUrl.origin === originUrl.origin || 
+                 originUrl.hostname === allowedUrl.hostname;
+        } catch {
+          return allowed === origin;
+        }
+      });
+      
+      if (originMatches || origin.includes(config.urls.frontend.replace(/^https?:\/\//, ''))) {
+        callback(null, true);
+      } else {
+        // Log for debugging but allow in production (can be restricted later)
+        console.warn(`[CORS] Request from unlisted origin: ${origin}`);
+        callback(null, true); // Allow for now, can restrict later
+      }
     } else {
-      callback(null, true); // Allow all origins for development
+      // Development: Allow all origins
+      callback(null, true);
     }
   },
   credentials: true,
@@ -52,6 +73,20 @@ app.use('/qr-codes', express.static(path.join(__dirname, '../qr-codes')));
 app.use('/thumbnails', express.static(path.join(__dirname, '../video-storage/thumbnails')));
 // Serve uploaded videos from backend/upload folder
 app.use('/upload', express.static(path.join(__dirname, 'upload')));
+// Serve caption files with proper CORS headers
+app.use('/captions', (req, res, next) => {
+  // Set CORS headers for caption files
+  const origin = req.headers.origin;
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Accept, Origin');
+  res.header('Content-Type', 'text/vtt; charset=utf-8');
+  next();
+}, express.static(path.join(__dirname, '../video-storage/captions')));
 
 // Log all API requests
 app.use('/api', (req, res, next) => {

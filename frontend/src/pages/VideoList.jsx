@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Play, Edit, Trash2, ExternalLink, Eye, Calendar, Search, Upload, MessageCircle } from 'lucide-react';
 import api from '../services/api';
+import { getBackendUrl } from '../utils/backendUrl.js';
 
 function VideoList() {
   const [videos, setVideos] = useState([]);
@@ -278,7 +279,7 @@ function VideoList() {
             };
 
             // Get thumbnail URL - use video thumbnail or try to fetch by videoId
-            const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+            const backendUrl = getBackendUrl();
             
             // Function to build thumbnail URL
             const buildThumbnailUrl = (pathOrUrl, videoId) => {

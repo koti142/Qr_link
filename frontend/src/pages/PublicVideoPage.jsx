@@ -5,6 +5,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import VideoPlayer from '../components/VideoPlayer';
 import QRCodeViewer from '../components/QRCodeViewer';
 import api from '../services/api';
+import { getBackendUrl, getStreamingUrl } from '../utils/backendUrl.js';
 
 function PublicVideoPage() {
   const { videoId } = useParams();
@@ -76,7 +77,7 @@ function PublicVideoPage() {
   };
   
   // Determine streaming URL - handle Cloudflare URLs and mock URLs
-  const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+  const backendUrl = getBackendUrl();
   const cloudflareUrl = video.streaming_url || video.file_path;
   const isCloudflareUrl = cloudflareUrl && (cloudflareUrl.startsWith('http://') || cloudflareUrl.startsWith('https://'));
   
@@ -92,7 +93,7 @@ function PublicVideoPage() {
     // Mock URL detected - ALWAYS use local streaming endpoint
     console.log('[PublicVideoPage] Mock Cloudflare URL detected, converting to local streaming:', cloudflareUrl);
     const streamIdentifier = video.redirect_slug || video.video_id;
-    streamUrl = `${backendUrl}/s/${streamIdentifier}`;
+    streamUrl = getStreamingUrl(video.video_id, streamIdentifier);
     console.log('[PublicVideoPage] Converted to local streaming endpoint:', streamUrl);
   } else if (isCloudflareUrl && !isMock && !isOldFormat) {
     // Use real Cloudflare URL directly - but double-check it's not a mock URL
@@ -100,7 +101,7 @@ function PublicVideoPage() {
       // Safety check: if somehow we got here but it's still a mock URL, use local
       console.warn('[PublicVideoPage] Safety check: Detected mock URL in real Cloudflare branch, using local fallback');
       const streamIdentifier = video.redirect_slug || video.video_id;
-      streamUrl = `${backendUrl}/s/${streamIdentifier}`;
+      streamUrl = getStreamingUrl(video.video_id, streamIdentifier);
     } else {
       streamUrl = cloudflareUrl;
       console.log('[PublicVideoPage] Using real Cloudflare URL directly:', streamUrl);
@@ -108,7 +109,7 @@ function PublicVideoPage() {
   } else {
     // Use ultra-short stream URL: /s/shortSlug (e.g., /s/kdn4adsn4e)
     const streamIdentifier = video.redirect_slug || video.video_id;
-    streamUrl = `${backendUrl}/s/${streamIdentifier}`;
+    streamUrl = getStreamingUrl(video.video_id, streamIdentifier);
     console.log('[PublicVideoPage] Using local streaming endpoint:', streamUrl);
   }
   
@@ -116,7 +117,7 @@ function PublicVideoPage() {
   if (streamUrl && isMockUrl(streamUrl)) {
     console.error('[PublicVideoPage] CRITICAL: Attempted to pass mock URL to VideoPlayer! Converting to local URL.');
     const streamIdentifier = video.redirect_slug || video.video_id;
-    streamUrl = `${backendUrl}/s/${streamIdentifier}`;
+    streamUrl = getStreamingUrl(video.video_id, streamIdentifier);
     console.log('[PublicVideoPage] Final conversion to local URL:', streamUrl);
   }
   

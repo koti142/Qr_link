@@ -5,6 +5,7 @@ import 'videojs-contrib-quality-levels';
 import 'videojs-hls-quality-selector';
 import { AlertCircle } from 'lucide-react';
 import VideoDiagnostic from './VideoDiagnostic';
+import { getBackendUrl } from '../utils/backendUrl.js';
 
 // Custom styles for Video.js player - Professional YouTube-like appearance
 const videoPlayerStyles = `
@@ -159,26 +160,20 @@ const videoPlayerStyles = `
     display: flex !important;
     visibility: visible !important;
   }
-  /* Current time - third */
+  /* Current time - hidden */
   .video-js .vjs-control-bar > .vjs-current-time {
-    order: 3;
-    margin-right: 4px;
-    display: flex !important;
-    visibility: visible !important;
+    display: none !important;
+    visibility: hidden !important;
   }
-  /* Time divider "/" - fourth */
+  /* Time divider "/" - hidden */
   .video-js .vjs-control-bar > .vjs-time-divider {
-    order: 4;
-    margin: 0 4px;
-    display: flex !important;
-    visibility: visible !important;
+    display: none !important;
+    visibility: hidden !important;
   }
-  /* Duration - fifth */
+  /* Duration - hidden */
   .video-js .vjs-control-bar > .vjs-duration {
-    order: 5;
-    margin-left: 4px;
-    display: flex !important;
-    visibility: visible !important;
+    display: none !important;
+    visibility: hidden !important;
   }
   /* Progress bar is positioned absolutely at top, not in flex order */
   .video-js .vjs-control-bar > .vjs-progress-control {
@@ -198,42 +193,17 @@ const videoPlayerStyles = `
     min-width: 0;
   }
   /* Control bar - right side controls */
-  /* Show playback rate button - make it visible and functional */
+  /* Hide playback rate button */
   .video-js .vjs-control-bar > .vjs-playback-rate {
-    order: 6;
-    margin-left: 8px;
-    display: flex !important; /* Always visible */
-    visibility: visible !important;
-    opacity: 1 !important;
-    pointer-events: auto !important;
-    cursor: pointer !important;
-    position: relative;
-  }
-  /* Display selected speed below button */
-  .video-js .vjs-control-bar > .vjs-playback-rate::after {
-    content: attr(data-selected-speed);
-    position: absolute;
-    bottom: -18px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.85);
-    white-space: nowrap;
-    pointer-events: none;
-    opacity: 0.9;
-    font-weight: 500;
-  }
-  /* When menu is open, make it more prominent */
-  .video-js .vjs-control-bar > .vjs-playback-rate.vjs-menu-button-open {
-    z-index: 1000;
-  }
-  .video-js .vjs-control-bar > .vjs-playback-rate.vjs-menu-button-open .vjs-menu {
-    z-index: 1001;
-  }
-  /* Hide captions button completely */
-  .video-js .vjs-control-bar > .vjs-subs-caps-button {
     display: none !important;
     visibility: hidden !important;
+  }
+  /* Show captions button */
+  .video-js .vjs-control-bar > .vjs-subs-caps-button {
+    order: 6;
+    margin-left: 4px;
+    display: flex !important;
+    visibility: visible !important;
   }
   .video-js .vjs-control-bar > .vjs-picture-in-picture-control {
     order: 7;
@@ -505,6 +475,85 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null, vide
       videoElement.setAttribute('poster', poster);
     }
 
+    // Helper function to determine subtitle file path based on video source
+    const getSubtitlePath = (subtitleFileName, videoIdForCaption = null, languageCode = 'en') => {
+      // If we have a videoId, try to use the caption API endpoint first
+      if (videoIdForCaption) {
+        const backendUrl = getBackendUrl();
+        // Try caption file path: /captions/{videoId}_{language}.vtt
+        // Extract language from filename (e.g., subtitles-ar.vtt -> ar, or use provided languageCode)
+        let language = languageCode;
+        const langMatch = subtitleFileName.match(/-([a-z]{2})\.vtt$/);
+        if (langMatch) {
+          language = langMatch[1];
+        }
+        const captionPath = `${backendUrl}/captions/${videoIdForCaption}_${language}.vtt`;
+        console.log('[VideoPlayer] Trying caption API path:', captionPath);
+        return captionPath;
+      }
+      
+      let subtitleSrc = subtitleFileName;
+      if (safeSrc) {
+        try {
+          // If video source is a URL, construct subtitle path relative to video
+          if (safeSrc.startsWith('http://') || safeSrc.startsWith('https://')) {
+            const urlObj = new URL(safeSrc);
+            const pathParts = urlObj.pathname.split('/');
+            pathParts[pathParts.length - 1] = subtitleFileName;
+            subtitleSrc = urlObj.origin + pathParts.join('/');
+          } else if (safeSrc.includes('/')) {
+            // If it's a relative path, replace filename with subtitle file
+            const pathParts = safeSrc.split('/');
+            pathParts[pathParts.length - 1] = subtitleFileName;
+            subtitleSrc = pathParts.join('/');
+          }
+        } catch (e) {
+          // Fallback to default if URL parsing fails
+          console.warn('Could not parse video URL for subtitle path, using default:', e);
+        }
+      }
+      console.log('[VideoPlayer] Subtitle path for', subtitleFileName, ':', subtitleSrc);
+      return subtitleSrc;
+    };
+
+    // Add Closed Captions (CC) track elements for WebVTT subtitles
+    // Add tracks directly to video element (before Video.js initialization)
+    // This ensures native HTML5 track support works properly
+
+    // Support multiple languages from captions prop or use defaults
+    if (captions && captions.length > 0) {
+      // Use captions from props (multiple languages)
+      captions.forEach((caption, index) => {
+        const lang = caption.language || 'en';
+        const label = caption.label || lang || 'English';
+        const file = caption.url ? caption.url.split('/').pop() : `${lang}.vtt`;
+        const subtitleSrc = caption.url || getSubtitlePath(file, videoId, lang);
+        
+        const trackElement = document.createElement('track');
+        trackElement.setAttribute('kind', 'subtitles');
+        trackElement.setAttribute('srclang', lang);
+        trackElement.setAttribute('label', label);
+        if (index === 0) {
+          trackElement.setAttribute('default', '');
+        }
+        trackElement.setAttribute('src', subtitleSrc);
+        videoElement.appendChild(trackElement);
+        console.log('[VideoPlayer] Added track:', label, lang, subtitleSrc);
+      });
+    } else {
+      // Default: Add English subtitle track
+      // Try to use videoId to find caption file, otherwise use default path
+      const subtitlePath = getSubtitlePath('subtitles.vtt', videoId, 'en');
+      const trackElement = document.createElement('track');
+      trackElement.setAttribute('kind', 'subtitles');
+      trackElement.setAttribute('srclang', 'en');
+      trackElement.setAttribute('label', 'English');
+      trackElement.setAttribute('default', '');
+      trackElement.setAttribute('src', subtitlePath);
+      videoElement.appendChild(trackElement);
+      console.log('[VideoPlayer] Added default English track:', subtitlePath);
+    }
+
     // Clear container and add video element
     containerRef.current.innerHTML = '';
     containerRef.current.appendChild(videoElement);
@@ -516,24 +565,22 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null, vide
       controls: true,
       preload: 'auto',
       autoplay: autoplay,
-      playbackRates: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2], // More playback speed options
+      playbackRates: [1], // Only normal speed (speed control removed)
       liveui: true, // Enable live UI for live streams
       // YouTube-like control bar layout - properly arranged controls
       controlBar: {
         children: [
           'playToggle', // Play/Pause button (automatically toggles)
           'volumePanel', // Volume control
-          'currentTimeDisplay', // Current time
-          'timeDivider', // Time separator "/"
-          'durationDisplay', // Total duration
           'progressControl', // Progress bar
           'liveDisplay',
           'remainingTimeDisplay',
           'spacer', // Flexible spacer to push controls to right
-          'playbackRateMenuButton', // Playback speed (hidden by default, shown when clicked)
+          'subsCapsButton', // Closed Captions button
           'pictureInPictureToggle', // Picture-in-Picture
           'fullscreenToggle' // Fullscreen
-          // Removed: 'subsCapsButton' (Closed Captions - not needed)
+          // Removed: 'currentTimeDisplay', 'timeDivider', 'durationDisplay' (Time indicators)
+          // Removed: 'playbackRateMenuButton' (Playback speed)
         ]
       },
       html5: {
@@ -545,7 +592,8 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null, vide
         },
         nativeVideoTracks: false,
         nativeAudioTracks: false,
-        nativeTextTracks: false
+        nativeTextTracks: true, // Enable native text tracks for Closed Captions
+        textTrackSettings: false // Disable text track settings for simpler UI
       },
       // YouTube-like settings - keep controls visible
       inactivityTimeout: 0, // Never hide controls (0 = always visible)
@@ -589,18 +637,8 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null, vide
     // Force reload to ensure new video is loaded (important after replacement)
     player.load();
 
-    // Add captions
-    if (captions && captions.length > 0) {
-      captions.forEach((caption, index) => {
-        player.addRemoteTextTrack({
-          kind: 'captions',
-          src: caption.url,
-          srclang: caption.language || 'en',
-          label: caption.label || caption.language || 'English',
-          default: index === 0
-        }, false);
-      });
-    }
+    // Tracks are already added to video element before Video.js initialization
+    // No need to add them again via API - they will be automatically detected
 
     // Event handlers
     player.ready(() => {
@@ -640,9 +678,59 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null, vide
           videoEl.disablePictureInPicture = true;
         }
 
-        // Remove download attribute
-        videoEl.removeAttribute('download');
-        videoEl.setAttribute('controlsList', 'nodownload noplaybackrate');
+      // Remove download attribute
+      videoEl.removeAttribute('download');
+      videoEl.setAttribute('controlsList', 'nodownload noplaybackrate');
+      
+      // Enable text tracks for Closed Captions
+      // Check for tracks in the video element
+      const videoTracks = videoEl.querySelectorAll('track');
+      console.log('[VideoPlayer] Found', videoTracks.length, 'track elements in video');
+      videoTracks.forEach((track, index) => {
+        console.log('[VideoPlayer] Track element', index, ':', track.getAttribute('kind'), track.getAttribute('label'), track.getAttribute('srclang'), track.getAttribute('src'));
+      });
+      
+      setTimeout(() => {
+        const textTracks = player.textTracks();
+        if (textTracks && textTracks.length > 0) {
+          console.log('[VideoPlayer] Found', textTracks.length, 'text tracks in player');
+          // Find default track and show it
+          for (let i = 0; i < textTracks.length; i++) {
+            const track = textTracks[i];
+            console.log('[VideoPlayer] Track', i, ':', track.kind, track.label, track.language, 'default:', track.default, 'mode:', track.mode, 'readyState:', track.readyState);
+            if (track.default) {
+              track.mode = 'showing';
+              console.log('[VideoPlayer] Enabled default subtitle track:', track.label);
+            }
+          }
+          
+          // Listen for text track changes
+          textTracks.addEventListener('change', () => {
+            console.log('[VideoPlayer] Text track changed');
+            for (let i = 0; i < textTracks.length; i++) {
+              if (textTracks[i].mode === 'showing') {
+                console.log('[VideoPlayer] Active track:', textTracks[i].label);
+              }
+            }
+          });
+          
+          // Listen for track loading errors
+          for (let i = 0; i < textTracks.length; i++) {
+            const track = textTracks[i];
+            track.addEventListener('error', (e) => {
+              console.error('[VideoPlayer] Track error:', track.label, track.language, e);
+            });
+            track.addEventListener('load', () => {
+              console.log('[VideoPlayer] Track loaded:', track.label);
+            });
+          }
+        } else {
+          console.warn('[VideoPlayer] No text tracks found in player. Check:');
+          console.warn('  1. Make sure subtitles.vtt file exists');
+          console.warn('  2. Check browser console for CORS errors');
+          console.warn('  3. Verify subtitle path:', getSubtitlePath('subtitles.vtt'));
+        }
+      }, 1000); // Delay to ensure tracks are loaded
       }
 
       // Ensure all control buttons are visible and properly styled
@@ -705,230 +793,39 @@ function VideoPlayer({ src, captions = [], autoplay = false, poster = null, vide
           });
         }
 
-        // Add playback rate button dynamically - show it and make it functional
+        // Speed/Playback rate button removed - hide it completely
         const playbackRateBtn = controlBar.getChild('playbackRateMenuButton');
         if (playbackRateBtn) {
-          // Show the button (it will be visible)
-          playbackRateBtn.show();
-          
-          // Ensure it's clickable and functional
+          playbackRateBtn.hide();
           const playbackRateEl = playbackRateBtn.el();
           if (playbackRateEl) {
-            playbackRateEl.style.pointerEvents = 'auto';
-            playbackRateEl.style.cursor = 'pointer';
-            playbackRateEl.style.display = 'flex';
-            playbackRateEl.style.visibility = 'visible';
-            
-            // Get all control bar children to hide/show them
-            const allControls = [
-              controlBar.getChild('playToggle'),
-              controlBar.getChild('volumePanel'),
-              controlBar.getChild('currentTimeDisplay'),
-              controlBar.getChild('timeDivider'),
-              controlBar.getChild('durationDisplay'),
-              controlBar.getChild('progressControl'),
-              controlBar.getChild('liveDisplay'),
-              controlBar.getChild('remainingTimeDisplay'),
-              controlBar.getChild('pictureInPictureToggle'),
-              controlBar.getChild('fullscreenToggle')
-            ].filter(Boolean); // Remove null/undefined
-            
-            // Function to hide all controls except speed button
-            const hideAllControls = () => {
-              console.log('[Speed Button] hideAllControls called, hiding', allControls.length, 'controls');
-              let hiddenCount = 0;
-              allControls.forEach((control, index) => {
-                if (control) {
-                  try {
-                    control.hide();
-                    hiddenCount++;
-                    const controlEl = control.el();
-                    if (controlEl) {
-                      controlEl.style.display = 'none';
-                      controlEl.style.visibility = 'hidden';
-                    }
-                  } catch (err) {
-                    console.error('[Speed Button] Error hiding control', index, err);
-                  }
-                }
-              });
-              console.log('[Speed Button] Hidden', hiddenCount, 'controls');
-            };
-            
-            // Function to show all controls
-            const showAllControls = () => {
-              console.log('[Speed Button] showAllControls called, showing', allControls.length, 'controls');
-              let shownCount = 0;
-              allControls.forEach((control, index) => {
-                if (control) {
-                  try {
-                    control.show();
-                    shownCount++;
-                    const controlEl = control.el();
-                    if (controlEl) {
-                      controlEl.style.display = '';
-                      controlEl.style.visibility = '';
-                    }
-                  } catch (err) {
-                    console.error('[Speed Button] Error showing control', index, err);
-                  }
-                }
-              });
-              console.log('[Speed Button] Shown', shownCount, 'controls');
-            };
-            
-            // Update selected speed display
-            const updateSpeedDisplay = (speed) => {
-              const speedText = speed === 1 ? '1x' : `${speed}x`;
-              playbackRateEl.setAttribute('data-selected-speed', speedText);
-            };
-            
-            // Initialize with current playback rate
-            updateSpeedDisplay(player.playbackRate());
-            
-            // Listen for playback rate changes
-            player.on('ratechange', () => {
-              updateSpeedDisplay(player.playbackRate());
-            });
-            
-            // Diagnostic logging
-            console.log('[Speed Button] Initializing speed button controls');
-            console.log('[Speed Button] Found controls:', allControls.length);
-            console.log('[Speed Button] Playback rate button:', playbackRateBtn);
-            
-            // Use MutationObserver to watch for class changes on the button
-            const observer = new MutationObserver((mutations) => {
-              mutations.forEach((mutation) => {
-                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-                  const isMenuOpen = playbackRateEl.classList.contains('vjs-menu-button-open');
-                  console.log('[Speed Button] Menu state changed:', isMenuOpen ? 'OPEN' : 'CLOSED');
-                  
-                  if (isMenuOpen) {
-                    console.log('[Speed Button] Hiding all controls');
-                    hideAllControls();
-                  } else {
-                    console.log('[Speed Button] Showing all controls');
-                    showAllControls();
-                    updateSpeedDisplay(player.playbackRate());
-                  }
-                }
-              });
-            });
-            
-            // Start observing the button element for class changes
-            observer.observe(playbackRateEl, {
-              attributes: true,
-              attributeFilter: ['class']
-            });
-            
-            // Ensure menu works
-            const menu = playbackRateBtn.getChild('menu');
-            if (menu) {
-              console.log('[Speed Button] Menu found:', menu);
-              
-              // When menu opens, hide all other controls
-              menu.on('show', () => {
-                console.log('[Speed Button] Menu show event fired');
-                playbackRateBtn.show();
-                hideAllControls();
-              });
-              
-              // When menu closes, show all controls again
-              menu.on('hide', () => {
-                console.log('[Speed Button] Menu hide event fired');
-                showAllControls();
-                updateSpeedDisplay(player.playbackRate());
-              });
-              
-              // Listen for speed selection
-              menu.on('change', () => {
-                console.log('[Speed Button] Menu change event fired');
-                setTimeout(() => {
-                  showAllControls();
-                  updateSpeedDisplay(player.playbackRate());
-                }, 100);
-              });
-              
-              // Listen to menu items being clicked
-              const menuContent = menu.getChild('menuContent');
-              if (menuContent) {
-                console.log('[Speed Button] Menu content found');
-                menuContent.on('click', (e) => {
-                  console.log('[Speed Button] Menu item clicked');
-                  setTimeout(() => {
-                    showAllControls();
-                    updateSpeedDisplay(player.playbackRate());
-                  }, 100);
-                });
-              } else {
-                console.warn('[Speed Button] Menu content not found');
-              }
-            } else {
-              console.warn('[Speed Button] Menu not found');
-            }
-            
-            // Also listen to button click to handle menu toggle
-            playbackRateBtn.on('click', () => {
-              console.log('[Speed Button] Button clicked');
-              // Use a small delay to let Video.js update the class
-              setTimeout(() => {
-                const isMenuOpen = playbackRateEl.classList.contains('vjs-menu-button-open');
-                console.log('[Speed Button] Menu open state after click:', isMenuOpen);
-                if (isMenuOpen) {
-                  hideAllControls();
-                } else {
-                  showAllControls();
-                }
-              }, 100);
-            });
-            
-            // Listen for clicks outside to close menu and show controls
-            const handleDocumentClick = (e) => {
-              if (playbackRateEl && !playbackRateEl.contains(e.target)) {
-                const isMenuOpen = playbackRateEl.classList.contains('vjs-menu-button-open');
-                if (isMenuOpen) {
-                  console.log('[Speed Button] Click outside detected, menu will close');
-                  setTimeout(() => {
-                    showAllControls();
-                  }, 100);
-                }
-              }
-            };
-            document.addEventListener('click', handleDocumentClick);
-            
-            // Cleanup on player dispose
-            player.on('dispose', () => {
-              console.log('[Speed Button] Cleaning up');
-              observer.disconnect();
-              document.removeEventListener('click', handleDocumentClick);
-            });
-            
-            // Also listen for rate changes to update display
-            player.on('ratechange', () => {
-              console.log('[Speed Button] Rate changed to:', player.playbackRate());
-              updateSpeedDisplay(player.playbackRate());
-            });
-          }
-        } else {
-          // If button doesn't exist, create it dynamically
-          try {
-            const PlaybackRateMenuButton = videojs.getComponent('PlaybackRateMenuButton');
-            if (PlaybackRateMenuButton) {
-              const newPlaybackRateBtn = new PlaybackRateMenuButton(player, {
-                playbackRates: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
-              });
-              controlBar.addChild(newPlaybackRateBtn, {}, 6); // Add at position 6
-              newPlaybackRateBtn.show();
-            }
-          } catch (err) {
-            console.warn('Could not add playback rate button dynamically:', err);
+            playbackRateEl.style.display = 'none';
+            playbackRateEl.style.visibility = 'hidden';
           }
         }
 
-        // Remove captions button completely (not in controlBar children anymore)
+        // Show captions button for Closed Captions support
         const captionsBtn = controlBar.getChild('subsCapsButton');
         if (captionsBtn) {
-          captionsBtn.hide();
+          captionsBtn.show();
+          
+          // Ensure captions button is functional
+          const captionsBtnEl = captionsBtn.el();
+          if (captionsBtnEl) {
+            captionsBtnEl.style.display = 'flex';
+            captionsBtnEl.style.visibility = 'visible';
+            captionsBtnEl.style.pointerEvents = 'auto';
+            captionsBtnEl.style.cursor = 'pointer';
+          }
+          
+          // Log available text tracks when button is clicked
+          captionsBtn.on('click', () => {
+            const textTracks = player.textTracks();
+            console.log('[VideoPlayer] CC button clicked. Available tracks:', textTracks.length);
+            for (let i = 0; i < textTracks.length; i++) {
+              console.log('[VideoPlayer] Track', i, ':', textTracks[i].label, textTracks[i].language, 'mode:', textTracks[i].mode);
+            }
+          });
         }
 
         // Show Picture-in-Picture button (even if disabled)

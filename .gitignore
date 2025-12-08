@@ -24,8 +24,8 @@ video-storage/**/*.avi
 video-storage/**/*.mkv
 
 
- backend/upload/
-  backend/upload/*
+backend/upload/
+backend/upload/*
 
 # QR codes
 qr-codes/*.png

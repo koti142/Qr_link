@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import VideoPlayer from '../components/VideoPlayer';
 import api from '../services/api';
+import { getStreamingUrl } from '../utils/backendUrl.js';
 
 function ShortUrlRedirect() {
   const { slug } = useParams();
@@ -219,27 +220,23 @@ function ShortUrlRedirect() {
   let streamingUrl;
   
   if (isMock) {
-    const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
     const streamIdentifier = video.redirect_slug || video.video_id;
-    streamingUrl = `${backendUrl}/s/${streamIdentifier}`;
+    streamingUrl = getStreamingUrl(video.video_id, streamIdentifier);
   } else if (isCloudflareUrl && !isMock) {
     if (isMockUrl(cloudflareUrl)) {
-      const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
       const streamIdentifier = video.redirect_slug || video.video_id;
-      streamingUrl = `${backendUrl}/s/${streamIdentifier}`;
+      streamingUrl = getStreamingUrl(video.video_id, streamIdentifier);
     } else {
       streamingUrl = cloudflareUrl;
     }
   } else {
-    const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
     const streamIdentifier = video.redirect_slug || video.video_id;
-    streamingUrl = `${backendUrl}/s/${streamIdentifier}`;
+    streamingUrl = getStreamingUrl(video.video_id, streamIdentifier);
   }
   
   if (streamingUrl && isMockUrl(streamingUrl)) {
-    const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
     const streamIdentifier = video.redirect_slug || video.video_id;
-    streamingUrl = `${backendUrl}/s/${streamIdentifier}`;
+    streamingUrl = getStreamingUrl(video.video_id, streamIdentifier);
   }
 
   return (

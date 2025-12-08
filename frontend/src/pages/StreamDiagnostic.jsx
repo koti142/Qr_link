@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
+import { getBackendUrl, getApiUrl } from '../utils/backendUrl.js';
 
 function StreamDiagnostic() {
   const { videoId } = useParams();
@@ -26,8 +27,8 @@ function StreamDiagnostic() {
     setRunning(true);
     setVideoData(null);
 
-    const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
-    const apiUrl = `${backendUrl}/api`;
+    const backendUrl = getBackendUrl();
+    const apiUrl = getApiUrl();
 
     // Test 1: Backend connectivity
     addResult('Backend Connectivity', 'info', 'Testing backend server...');

@@ -434,6 +434,9 @@ export async function streamVideo(req, res) {
         decodedVideoId: lookupId
       });
       
+      // Set CORS headers for error response
+      setCORSHeaders(req, res);
+      
       // Debug: Check if redirect_slug exists in database
       if (isShortSlugRoute) {
         try {

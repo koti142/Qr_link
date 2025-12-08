@@ -431,8 +431,7 @@ function MyStorageManager() {
         const videoIdMatch = storagePath.match(/(?:my-storage|cloudflare)\/([^/]+)_master\./);
         if (videoIdMatch) {
           const videoId = videoIdMatch[1];
-          const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
-          urlToSave = `${backendUrl}/s/${videoId}`;
+          urlToSave = getStreamingUrl(videoId);
           setSuccess(`Converted mock URL to localhost: ${urlToSave}`);
         } else {
           setError('Cannot convert mock URL. Please enter a valid localhost streaming URL.');
@@ -556,16 +555,14 @@ function MyStorageManager() {
       const videoIdMatch = storagePath.match(/my-storage\/([^/]+)_master\./);
       if (videoIdMatch) {
         const videoId = videoIdMatch[1];
-        const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
-        return `${backendUrl}/s/${videoId}`;
+        return getStreamingUrl(videoId);
       }
       
       // Try to extract from old cloudflare path format
       const oldPathMatch = storagePath.match(/cloudflare\/[^/]+\/([^/]+)_master\./);
       if (oldPathMatch) {
         const videoId = oldPathMatch[1];
-        const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
-        return `${backendUrl}/s/${videoId}`;
+        return getStreamingUrl(videoId);
       }
     }
     
