@@ -5,6 +5,7 @@ import config from '../config/config.js';
 import * as videoService from '../services/videoService.js';
 import * as redirectService from '../services/redirectService.js';
 import pool from '../config/database.js';
+import { resolveUploadPath } from '../utils/fileUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -528,11 +529,8 @@ export async function streamVideo(req, res) {
       // Don't redirect to mock URL, continue to local file search below
     }
     
-    // Build base paths
-    const basePath = path.dirname(__dirname);
-    const uploadPath = path.isAbsolute(config.upload.uploadPath) 
-      ? config.upload.uploadPath 
-      : path.resolve(basePath, config.upload.uploadPath);
+    // Build base paths using the utility function for correct path resolution
+    const uploadPath = resolveUploadPath();
     const myStoragePath = path.join(uploadPath, 'my-storage');
     const miscPath = path.join(uploadPath, 'misc');
     
@@ -629,7 +627,6 @@ export async function streamVideo(req, res) {
       }
       
       console.log('Path resolution:', {
-        basePath,
         configUploadPath: config.upload.uploadPath,
         resolvedUploadPath: uploadPath,
         resolvedMyStoragePath: myStoragePath,
@@ -672,8 +669,10 @@ export async function streamVideo(req, res) {
         possiblePaths.push(path.join(miscPath, video.file_path));
       }
       
-      // Strategy 6: Try original upload path structure (relative to backend)
-      possiblePaths.push(path.resolve(basePath, '..', 'video-storage', normalizedFilePath));
+      // Strategy 6: Try original upload path structure (legacy fallback)
+      const backendDir = path.dirname(__dirname);
+      const legacyBasePath = path.dirname(backendDir);
+      possiblePaths.push(path.resolve(legacyBasePath, '..', 'video-storage', normalizedFilePath));
       
       // Strategy 7: Try with each folder level separately
       if (normalizedFilePath.includes('/')) {
@@ -864,8 +863,10 @@ export async function streamVideo(req, res) {
       console.error('All attempted paths:', uniquePaths);
       
       // Check if any of the parent directories exist
+      const backendDir = path.dirname(__dirname);
+      const legacyBasePath = path.dirname(backendDir);
       const checkDirs = [
-        path.resolve(basePath, '..', 'video-storage'),
+        path.resolve(legacyBasePath, '..', 'video-storage'),
         uploadPath,
         miscPath
       ];
