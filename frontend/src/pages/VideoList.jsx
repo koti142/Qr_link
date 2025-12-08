@@ -255,7 +255,7 @@ function VideoList() {
           <p className="text-slate-400 text-sm mt-2">Try adjusting your filters or upload a new video</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 lg:gap-8">
           {videos.map((video) => {
             const formatDate = (dateString) => {
               if (!dateString) return 'Recently';
@@ -334,16 +334,17 @@ function VideoList() {
             return (
               <div
                 key={video.id}
-                className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden hover:shadow-xl transition-all duration-300 group"
+                className="bg-white rounded-2xl shadow-lg border-2 border-slate-200 overflow-hidden hover:shadow-2xl hover:border-blue-400 transition-all duration-300 group transform hover:-translate-y-2"
               >
                 {/* Thumbnail Section */}
-                <div className="relative w-full aspect-video bg-gradient-to-br from-blue-50 to-indigo-50 overflow-hidden">
+                <div className="relative w-full aspect-video bg-gradient-to-br from-slate-100 via-blue-50 to-indigo-50 overflow-hidden p-4">
                   {thumbnailUrl ? (
-                    <img
-                      src={thumbnailUrl}
-                      alt={video.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      onError={(e) => {
+                    <div className="relative w-full h-full rounded-xl overflow-hidden border-2 border-white shadow-lg bg-white">
+                      <img
+                        src={thumbnailUrl}
+                        alt={video.title}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                        onError={(e) => {
                         // Try alternative extensions if first one fails
                         const currentSrc = e.target.src;
                         const videoId = video.video_id;
@@ -367,123 +368,126 @@ function VideoList() {
                       }}
                       onLoad={() => {
                         // Hide placeholder when image loads successfully
-                        const placeholder = e.target.parentElement.querySelector('.thumbnail-placeholder');
+                        const placeholder = e.target.parentElement?.parentElement?.querySelector('.thumbnail-placeholder');
                         if (placeholder) {
                           placeholder.classList.add('hidden');
                           placeholder.classList.remove('flex');
                         }
                       }}
-                    />
+                      />
+                    </div>
                   ) : null}
                   
                   {/* Placeholder with Large Play Icon */}
-                  <div className={`thumbnail-placeholder w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 ${thumbnailUrl ? 'hidden' : 'flex'}`}>
-                    <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center mb-3">
-                      <Play className="w-12 h-12 text-blue-500 ml-1" fill="currentColor" />
+                  <div className={`thumbnail-placeholder absolute inset-4 flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border-2 border-slate-300 shadow-inner ${thumbnailUrl ? 'hidden' : 'flex'}`}>
+                    <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-full flex items-center justify-center mb-3 shadow-md">
+                      <Play className="w-10 h-10 text-blue-600 ml-1" fill="currentColor" />
                     </div>
-                    <p className="text-sm text-blue-500 font-medium">No Thumbnail</p>
+                    <p className="text-sm text-blue-600 font-semibold">No Thumbnail</p>
                   </div>
 
                   {/* Play Button Overlay (only on hover) */}
                   <Link
                     to={`/stream/${video.video_id}`}
-                    className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-black/20"
+                    className="absolute inset-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 bg-black/40 backdrop-blur-sm rounded-xl"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="w-16 h-16 bg-white/90 rounded-full flex items-center justify-center shadow-xl backdrop-blur-sm">
-                      <Play className="w-8 h-8 text-blue-600 ml-1" fill="currentColor" />
+                    <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center shadow-2xl transform group-hover:scale-110 transition-transform duration-300 border-4 border-white/80">
+                      <Play className="w-12 h-12 text-white ml-1" fill="currentColor" />
                     </div>
                   </Link>
 
                   {/* Status Badge */}
                   {video.status === 'active' && (
-                    <div className="absolute top-3 right-3">
-                      <span className="px-2.5 py-1 text-xs rounded-full font-semibold bg-green-500 text-white shadow-md">
-                        active
+                    <div className="absolute top-6 right-6 z-10">
+                      <span className="px-3 py-1.5 text-xs rounded-full font-bold bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-xl border-2 border-white/80 backdrop-blur-sm">
+                        Active
                       </span>
                     </div>
                   )}
                 </div>
 
                 {/* Content Section */}
-                <div className="p-5 bg-white">
+                <div className="p-5 sm:p-6 bg-white">
                   {/* Title */}
-                  <h3 className="text-base font-bold text-slate-900 mb-2 line-clamp-2 min-h-[2.5rem]">
+                  <h3 className="text-lg sm:text-xl font-bold text-slate-900 mb-2 line-clamp-2 min-h-[3rem] group-hover:text-blue-600 transition-colors leading-tight">
                     {video.title || 'Untitled Video'}
                   </h3>
 
                   {/* Category */}
-                  <p className="text-sm text-slate-500 mb-3">
-                    {video.course || 'Video Course'}
-                  </p>
-
-                  {/* File Size and Date */}
-                  <div className="flex items-center gap-2 text-sm text-slate-600 mb-3">
-                    <span className="font-medium">{formatSize(video.size)}</span>
-                    <span>•</span>
-                    <span>{formatDate(video.created_at)}</span>
-                  </div>
-
-                  {/* Engagement Metrics */}
-                  <div className="flex items-center gap-4 text-sm text-slate-500 mb-4">
-                    <div className="flex items-center gap-1.5">
-                      <Eye className="w-4 h-4" />
-                      <span>0</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <MessageCircle className="w-4 h-4" />
-                      <span>0</span>
-                    </div>
+                  <div className="mb-4">
+                    <p className="text-sm text-slate-500 font-medium uppercase tracking-wide">
+                      {video.course || 'Video Course'}
+                    </p>
                   </div>
 
                   {/* Tags/Pills */}
                   {(video.grade || video.lesson || video.module || video.activity) && (
-                    <div className="flex flex-wrap gap-2 mb-4">
+                    <div className="flex flex-wrap gap-2 mb-5">
                       {video.grade && (
-                        <span className="px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                        <span className="px-3 py-1.5 bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 rounded-lg text-xs font-bold border border-blue-300 shadow-sm">
                           {video.grade}
                         </span>
                       )}
                       {video.lesson && (
-                        <span className="px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                        <span className="px-3 py-1.5 bg-gradient-to-r from-green-50 to-green-100 text-green-700 rounded-lg text-xs font-bold border border-green-300 shadow-sm">
                           {video.lesson}
                         </span>
                       )}
                       {video.module && (
-                        <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-medium">
+                        <span className="px-3 py-1.5 bg-gradient-to-r from-purple-50 to-purple-100 text-purple-700 rounded-lg text-xs font-bold border border-purple-300 shadow-sm">
                           {video.module}
                         </span>
                       )}
                       {video.activity && (
-                        <span className="px-2.5 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-medium">
+                        <span className="px-3 py-1.5 bg-gradient-to-r from-orange-50 to-orange-100 text-orange-700 rounded-lg text-xs font-bold border border-orange-300 shadow-sm">
                           {video.activity}
                         </span>
                       )}
                     </div>
                   )}
 
+                  {/* File Size and Date */}
+                  <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-600 mb-4 pb-4 border-b-2 border-slate-100">
+                    <span className="font-semibold text-slate-700">{formatSize(video.size)}</span>
+                    <span className="text-slate-400">•</span>
+                    <span className="text-slate-500">{formatDate(video.created_at)}</span>
+                  </div>
+
+                  {/* Engagement Metrics */}
+                  <div className="flex items-center gap-5 text-xs sm:text-sm text-slate-500 mb-5">
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-all duration-200 cursor-default">
+                      <Eye className="w-4 h-4" />
+                      <span className="font-semibold">0</span>
+                    </div>
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-all duration-200 cursor-default">
+                      <MessageCircle className="w-4 h-4" />
+                      <span className="font-semibold">0</span>
+                    </div>
+                  </div>
+
                   {/* Action Buttons */}
-                  <div className="flex items-center gap-2 pt-3 border-t border-slate-200">
+                  <div className="flex items-center gap-2.5 pt-4 border-t-2 border-slate-200">
                     <Link
                       to={`/video/${video.video_id}`}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-700 rounded-xl text-sm font-semibold hover:bg-blue-100 transition-colors"
+                      className="flex-1 flex items-center justify-center gap-1.5 px-4 py-3 bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 rounded-xl text-sm font-bold hover:from-blue-100 hover:to-blue-200 hover:text-blue-800 hover:shadow-lg transition-all duration-200 border-2 border-blue-300 transform hover:scale-105"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <Eye className="w-4 h-4" />
-                      View
+                      <span className="hidden sm:inline">View</span>
                     </Link>
                     <Link
                       to={`/stream/${video.video_id}`}
                       target="_blank"
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-green-50 text-green-700 rounded-xl text-sm font-semibold hover:bg-green-100 transition-colors"
+                      className="flex-1 flex items-center justify-center gap-1.5 px-4 py-3 bg-gradient-to-r from-green-50 to-green-100 text-green-700 rounded-xl text-sm font-bold hover:from-green-100 hover:to-green-200 hover:text-green-800 hover:shadow-lg transition-all duration-200 border-2 border-green-300 transform hover:scale-105"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <Play className="w-4 h-4" />
-                      Stream
+                      <span className="hidden sm:inline">Stream</span>
                     </Link>
                     <Link
                       to={`/admin/videos/${video.id}/edit`}
-                      className="px-3 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-colors"
+                      className="px-4 py-3 bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 rounded-xl hover:from-slate-200 hover:to-slate-300 hover:text-slate-900 hover:shadow-lg transition-all duration-200 border-2 border-slate-300 transform hover:scale-105"
                       onClick={(e) => e.stopPropagation()}
                       title="Edit"
                     >
@@ -494,7 +498,7 @@ function VideoList() {
                         e.stopPropagation();
                         handleDelete(video.id);
                       }}
-                      className="px-3 py-2 bg-red-50 text-red-700 rounded-xl hover:bg-red-100 transition-colors"
+                      className="px-4 py-3 bg-gradient-to-r from-red-50 to-red-100 text-red-700 rounded-xl hover:from-red-100 hover:to-red-200 hover:text-red-800 hover:shadow-lg transition-all duration-200 border-2 border-red-300 transform hover:scale-105"
                       title="Delete"
                     >
                       <Trash2 className="w-4 h-4" />

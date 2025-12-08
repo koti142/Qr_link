@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Upload, FileVideo, X, AlertCircle, Save, ArrowLeft, RefreshCw, CheckCircle2, Info, FileText, Link2, QrCode, Video as VideoIcon } from 'lucide-react';
 import api from '../services/api';
-import VideoReplacementDiagnostic from '../components/VideoReplacementDiagnostic';
 
 function VideoEdit() {
   const { id } = useParams();
@@ -14,7 +13,6 @@ function VideoEdit() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [newVideoFile, setNewVideoFile] = useState(null);
-  const [showDiagnostic, setShowDiagnostic] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -185,25 +183,25 @@ function VideoEdit() {
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 w-full overflow-y-auto">
-      <div className="w-full h-full p-6 lg:p-8">
-        {/* Header */}
-        <div className="mb-6">
+      <div className="max-w-7xl mx-auto w-full h-full p-4 sm:p-6 lg:p-8 xl:p-10">
+        {/* Header Section */}
+        <div className="mb-8">
           <button
             onClick={() => navigate('/admin/videos')}
-            className="flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-4 transition-colors font-medium"
+            className="flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-6 transition-all duration-200 font-medium group"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
             <span>Back to Videos</span>
           </button>
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 rounded-xl shadow-lg">
+          <div className="flex items-center gap-5 mb-2">
+            <div className="p-4 bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 rounded-2xl shadow-xl shadow-blue-500/20">
               <VideoIcon className="w-8 h-8 text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-slate-900" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+              <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
                 Edit Video
               </h1>
-              <p className="text-slate-600 text-base mt-1" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+              <p className="text-slate-600 text-base sm:text-lg" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
                 Update video information and replace video file
               </p>
             </div>
@@ -212,7 +210,7 @@ function VideoEdit() {
 
         {/* Success Message */}
         {success && (
-          <div className="mb-6 p-5 bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 rounded-xl shadow-sm">
+          <div className="mb-6 p-5 bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 rounded-xl shadow-md animate-in slide-in-from-top-2">
             <div className="flex items-center gap-3">
               <CheckCircle2 className="w-6 h-6 text-green-600 flex-shrink-0" />
               <p className="text-green-800 font-medium">{success}</p>
@@ -222,7 +220,7 @@ function VideoEdit() {
 
         {/* Error Message */}
         {error && (
-          <div className="mb-6 p-5 bg-gradient-to-r from-red-50 to-rose-50 border-l-4 border-red-500 rounded-xl shadow-sm">
+          <div className="mb-6 p-5 bg-gradient-to-r from-red-50 to-rose-50 border-l-4 border-red-500 rounded-xl shadow-md animate-in slide-in-from-top-2">
             <div className="flex items-center gap-3">
               <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0" />
               <p className="text-red-800 font-medium">{error}</p>
@@ -232,21 +230,24 @@ function VideoEdit() {
 
         <form onSubmit={handleSubmit} className="space-y-6" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
           {/* Main Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
             {/* Left Column - Form Fields */}
-            <div className="lg:col-span-2 space-y-6">
+            <div className="lg:col-span-2 space-y-6 lg:space-y-8">
               {/* Basic Information Card */}
-              <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 lg:p-8">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2.5 bg-gradient-to-br from-blue-100 to-blue-50 rounded-xl">
-                    <FileText className="w-5 h-5 text-blue-600" />
+              <div className="bg-white rounded-2xl shadow-xl border border-slate-200/60 p-6 sm:p-8 lg:p-10 hover:shadow-2xl transition-shadow duration-300">
+                <div className="flex items-center gap-4 mb-8 pb-6 border-b border-slate-200">
+                  <div className="p-3 bg-gradient-to-br from-blue-100 to-blue-50 rounded-xl shadow-sm">
+                    <FileText className="w-6 h-6 text-blue-600" />
                   </div>
-                  <h2 className="text-xl font-bold text-slate-900">Basic Information</h2>
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Basic Information</h2>
+                    <p className="text-sm text-slate-500 mt-1">Update the core video details</p>
+                  </div>
                 </div>
 
-                <div className="space-y-5">
+                <div className="space-y-6">
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    <label className="block text-sm font-semibold text-slate-700 mb-2.5">
                       Title <span className="text-red-500">*</span>
                     </label>
                     <input
@@ -255,37 +256,37 @@ function VideoEdit() {
                       value={formData.title}
                       onChange={handleChange}
                       required
-                      className="w-full px-4 py-3 text-[15px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white"
+                      className="w-full px-4 py-3.5 text-[15px] border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white hover:border-slate-300"
                       placeholder="Enter video title"
                       style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    <label className="block text-sm font-semibold text-slate-700 mb-2.5">
                       Description
                     </label>
                     <textarea
                       name="description"
                       value={formData.description}
                       onChange={handleChange}
-                      rows={4}
-                      className="w-full px-4 py-3 text-[15px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all resize-none bg-white"
+                      rows={5}
+                      className="w-full px-4 py-3.5 text-[15px] border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all resize-none bg-white hover:border-slate-300"
                       placeholder="Enter video description"
                       style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      <label className="block text-sm font-semibold text-slate-700 mb-2.5">
                         Language
                       </label>
                       <select
                         name="language"
                         value={formData.language}
                         onChange={handleChange}
-                        className="w-full px-4 py-3 text-[15px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white cursor-pointer"
+                        className="w-full px-4 py-3.5 text-[15px] border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white cursor-pointer hover:border-slate-300"
                         style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
                       >
                         <option value="en">English</option>
@@ -296,14 +297,14 @@ function VideoEdit() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      <label className="block text-sm font-semibold text-slate-700 mb-2.5">
                         Status
                       </label>
                       <select
                         name="status"
                         value={formData.status}
                         onChange={handleChange}
-                        className="w-full px-4 py-3 text-[15px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white cursor-pointer"
+                        className="w-full px-4 py-3.5 text-[15px] border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white cursor-pointer hover:border-slate-300"
                         style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
                       >
                         <option value="active">Active</option>
@@ -315,83 +316,86 @@ function VideoEdit() {
               </div>
 
               {/* Course Information Card */}
-              <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 lg:p-8">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2.5 bg-gradient-to-br from-purple-100 to-purple-50 rounded-xl">
-                    <Info className="w-5 h-5 text-purple-600" />
+              <div className="bg-white rounded-2xl shadow-xl border border-slate-200/60 p-6 sm:p-8 lg:p-10 hover:shadow-2xl transition-shadow duration-300">
+                <div className="flex items-center gap-4 mb-8 pb-6 border-b border-slate-200">
+                  <div className="p-3 bg-gradient-to-br from-purple-100 to-purple-50 rounded-xl shadow-sm">
+                    <Info className="w-6 h-6 text-purple-600" />
                   </div>
-                  <h2 className="text-xl font-bold text-slate-900">Course Information</h2>
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Course Information</h2>
+                    <p className="text-sm text-slate-500 mt-1">Organize video by course structure</p>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Course</label>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2.5">Course</label>
                     <input
                       type="text"
                       name="course"
                       value={formData.course}
                       onChange={handleChange}
-                      className="w-full px-4 py-3 text-[15px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white"
+                      className="w-full px-4 py-3.5 text-[15px] border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white hover:border-slate-300"
                       placeholder="Course name"
                       style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Grade</label>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2.5">Grade</label>
                     <input
                       type="text"
                       name="grade"
                       value={formData.grade}
                       onChange={handleChange}
-                      className="w-full px-4 py-3 text-[15px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white"
+                      className="w-full px-4 py-3.5 text-[15px] border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white hover:border-slate-300"
                       placeholder="Grade"
                       style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Lesson</label>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2.5">Lesson</label>
                     <input
                       type="text"
                       name="lesson"
                       value={formData.lesson}
                       onChange={handleChange}
-                      className="w-full px-4 py-3 text-[15px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white"
+                      className="w-full px-4 py-3.5 text-[15px] border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white hover:border-slate-300"
                       placeholder="Lesson"
                       style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Module</label>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2.5">Module</label>
                     <input
                       type="text"
                       name="module"
                       value={formData.module}
                       onChange={handleChange}
-                      className="w-full px-4 py-3 text-[15px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white"
+                      className="w-full px-4 py-3.5 text-[15px] border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white hover:border-slate-300"
                       placeholder="Module"
                       style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Activity</label>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2.5">Activity</label>
                     <input
                       type="text"
                       name="activity"
                       value={formData.activity}
                       onChange={handleChange}
-                      className="w-full px-4 py-3 text-[15px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white"
+                      className="w-full px-4 py-3.5 text-[15px] border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white hover:border-slate-300"
                       placeholder="Activity"
                       style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Topic</label>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2.5">Topic</label>
                     <input
                       type="text"
                       name="topic"
                       value={formData.topic}
                       onChange={handleChange}
-                      className="w-full px-4 py-3 text-[15px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white"
+                      className="w-full px-4 py-3.5 text-[15px] border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white hover:border-slate-300"
                       placeholder="Topic"
                       style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
                     />
@@ -401,14 +405,17 @@ function VideoEdit() {
             </div>
 
             {/* Right Column - Video Replacement & Info */}
-            <div className="space-y-6">
+            <div className="space-y-6 lg:space-y-8">
               {/* Video Replacement Card */}
-              <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2.5 bg-gradient-to-br from-green-100 to-green-50 rounded-xl">
-                    <Upload className="w-5 h-5 text-green-600" />
+              <div className="bg-white rounded-2xl shadow-xl border border-slate-200/60 p-6 sm:p-8 hover:shadow-2xl transition-shadow duration-300">
+                <div className="flex items-center gap-4 mb-6 pb-6 border-b border-slate-200">
+                  <div className="p-3 bg-gradient-to-br from-green-100 to-green-50 rounded-xl shadow-sm">
+                    <Upload className="w-6 h-6 text-green-600" />
                   </div>
-                  <h2 className="text-xl font-bold text-slate-900">Replace Video</h2>
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Replace Video</h2>
+                    <p className="text-sm text-slate-500 mt-1">Upload a new video file</p>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -464,31 +471,19 @@ function VideoEdit() {
                       </div>
                     </div>
                   )}
-
-                  <button
-                    type="button"
-                    onClick={() => setShowDiagnostic(!showDiagnostic)}
-                    className="w-full px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center justify-center gap-2"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    {showDiagnostic ? 'Hide' : 'Show'} Replacement Diagnostic
-                  </button>
-
-                  {showDiagnostic && (
-                    <div className="mt-4">
-                      <VideoReplacementDiagnostic videoId={id} />
-                    </div>
-                  )}
                 </div>
               </div>
 
               {/* Video Information Card */}
-              <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2.5 bg-gradient-to-br from-indigo-100 to-indigo-50 rounded-xl">
-                    <Info className="w-5 h-5 text-indigo-600" />
+              <div className="bg-white rounded-2xl shadow-xl border border-slate-200/60 p-6 sm:p-8 hover:shadow-2xl transition-shadow duration-300">
+                <div className="flex items-center gap-4 mb-6 pb-6 border-b border-slate-200">
+                  <div className="p-3 bg-gradient-to-br from-indigo-100 to-indigo-50 rounded-xl shadow-sm">
+                    <Info className="w-6 h-6 text-indigo-600" />
                   </div>
-                  <h2 className="text-xl font-bold text-slate-900">Video Information</h2>
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Video Information</h2>
+                    <p className="text-sm text-slate-500 mt-1">Current video details</p>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -548,11 +543,11 @@ function VideoEdit() {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center justify-end gap-4 pt-6 border-t border-slate-200">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-4 pt-8 mt-8 border-t-2 border-slate-200">
             <button
               type="button"
               onClick={() => navigate('/admin/videos')}
-              className="px-6 py-3 border border-slate-300 text-slate-700 rounded-xl hover:bg-slate-50 transition-colors font-semibold"
+              className="px-6 py-3.5 border-2 border-slate-300 text-slate-700 rounded-xl hover:bg-slate-50 hover:border-slate-400 transition-all font-semibold"
               style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
             >
               Cancel
@@ -560,7 +555,7 @@ function VideoEdit() {
             <button
               type="submit"
               disabled={saving || uploadingVideo}
-              className="px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all font-semibold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-8 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all font-semibold shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transform hover:scale-[1.02] active:scale-[0.98]"
               style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
             >
               {saving || uploadingVideo ? (

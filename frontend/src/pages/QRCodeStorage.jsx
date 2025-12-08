@@ -137,35 +137,42 @@ function QRCodeStorage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      <div className="p-6 lg:p-8">
+      <div className="w-full p-4 sm:p-6 lg:p-8 xl:p-10">
         {/* Header Container */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">QR Code Storage</h1>
-          <p className="text-slate-600 text-lg">Manage and download QR codes with short links for all your videos</p>
+        <div className="mb-8 lg:mb-10">
+          <div className="flex items-center gap-4 mb-3">
+            <div className="p-3 bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 rounded-2xl shadow-xl shadow-blue-500/20">
+              <Filter className="w-8 h-8 text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-2">QR Code Storage</h1>
+              <p className="text-slate-600 text-base sm:text-lg">Manage and download QR codes with short links for all your videos</p>
+            </div>
+          </div>
         </div>
 
         {/* Search and Filter */}
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 mb-6">
-          <div className="flex flex-col md:flex-row gap-4">
+        <div className="bg-white rounded-2xl shadow-xl border-2 border-slate-200 p-6 sm:p-8 mb-6 lg:mb-8">
+          <div className="flex flex-col md:flex-row gap-4 lg:gap-6">
             {/* Search */}
             <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5 z-10" />
               <input
                 type="text"
                 placeholder="Search by title, video ID, course, grade, lesson..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                className="w-full pl-12 pr-4 py-3.5 border-2 border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white hover:border-slate-300 transition-all text-[15px]"
               />
             </div>
 
             {/* Filter */}
-            <div className="flex items-center gap-2">
-              <Filter className="text-slate-400 w-5 h-5" />
+            <div className="flex items-center gap-3">
+              <Filter className="text-slate-500 w-5 h-5" />
               <select
                 value={selectedFilter}
                 onChange={(e) => setSelectedFilter(e.target.value)}
-                className="px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                className="px-4 py-3.5 border-2 border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white hover:border-slate-300 transition-all cursor-pointer text-[15px] font-medium"
               >
                 <option value="all">All Videos</option>
                 <option value="course">With Course</option>
@@ -175,8 +182,8 @@ function QRCodeStorage() {
             </div>
 
             {/* Count */}
-            <div className="flex items-center px-4 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200">
-              <span className="text-sm font-semibold text-blue-700">
+            <div className="flex items-center px-5 py-3.5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border-2 border-blue-200 shadow-sm">
+              <span className="text-sm font-bold text-blue-700">
                 {filteredQrCodes.length} {filteredQrCodes.length === 1 ? 'QR Code' : 'QR Codes'}
               </span>
             </div>
@@ -184,108 +191,115 @@ function QRCodeStorage() {
         </div>
 
         {/* QR Codes Container */}
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6">
+        <div className="bg-white rounded-2xl shadow-xl border-2 border-slate-200 p-6 sm:p-8">
           {filteredQrCodes.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-slate-500 text-lg font-semibold">No QR codes found</p>
+            <div className="text-center py-16">
+              <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Search className="w-10 h-10 text-blue-500" />
+              </div>
+              <p className="text-slate-600 text-lg sm:text-xl font-bold mb-2">No QR codes found</p>
+              <p className="text-slate-500 text-sm mb-6">Try adjusting your search or filters</p>
               {searchTerm && (
                 <button
                   onClick={() => {
                     setSearchTerm('');
                     setSelectedFilter('all');
                   }}
-                  className="mt-4 text-blue-600 hover:text-blue-700 font-semibold"
+                  className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all font-semibold shadow-lg hover:shadow-xl"
                 >
                   Clear filters
                 </button>
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 lg:gap-8">
             {filteredQrCodes.map((item) => (
               <div
                 key={item.videoId}
-                className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 hover:shadow-xl transition-all duration-300 hover:border-blue-300"
+                className="bg-white rounded-2xl shadow-lg border-2 border-slate-200 p-5 sm:p-6 hover:shadow-2xl transition-all duration-300 hover:border-blue-400 transform hover:-translate-y-1 group"
               >
                 {/* QR Code */}
-                <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-3 rounded-lg mb-3 border border-blue-200 flex justify-center">
-                  <QRCodeSVG
-                    value={item.shortUrl}
-                    size={160}
-                    level="M"
-                  />
+                <div className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4 rounded-xl mb-4 border-2 border-blue-200 flex justify-center shadow-inner group-hover:border-blue-300 transition-colors">
+                  <div className="bg-white p-2 rounded-lg shadow-sm">
+                    <QRCodeSVG
+                      value={item.shortUrl}
+                      size={160}
+                      level="M"
+                    />
+                  </div>
                 </div>
 
                 {/* Video Info */}
-                <div className="mb-4">
-                  <h3 className="font-bold text-lg text-slate-900 mb-2 line-clamp-2 min-h-[3rem]">
+                <div className="mb-5">
+                  <h3 className="font-bold text-lg sm:text-xl text-slate-900 mb-3 line-clamp-2 min-h-[3rem] group-hover:text-blue-600 transition-colors leading-tight">
                     {item.title || 'Untitled Video'}
                   </h3>
                   
-                  <div className="flex flex-wrap gap-2 mb-3">
+                  <div className="flex flex-wrap gap-2 mb-4">
                     {item.course && (
-                      <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold">
+                      <span className="px-3 py-1.5 bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 rounded-lg text-xs font-bold border border-blue-300 shadow-sm">
                         {item.course}
                       </span>
                     )}
                     {item.grade && (
-                      <span className="px-2 py-1 bg-green-50 text-green-700 rounded-lg text-xs font-semibold">
+                      <span className="px-3 py-1.5 bg-gradient-to-r from-green-50 to-green-100 text-green-700 rounded-lg text-xs font-bold border border-green-300 shadow-sm">
                         Grade {item.grade}
                       </span>
                     )}
                     {item.lesson && (
-                      <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded-lg text-xs font-semibold">
+                      <span className="px-3 py-1.5 bg-gradient-to-r from-purple-50 to-purple-100 text-purple-700 rounded-lg text-xs font-bold border border-purple-300 shadow-sm">
                         {item.lesson}
                       </span>
                     )}
                   </div>
 
                   {/* Short URL */}
-                  <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
-                    <p className="text-xs text-slate-500 mb-1 font-semibold uppercase tracking-wide">
+                  <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl p-4 border-2 border-slate-200 mb-4">
+                    <p className="text-xs text-slate-600 mb-2 font-bold uppercase tracking-wide">
                       Short Link
                     </p>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 bg-white rounded-lg p-2 border border-slate-200">
                       <input
                         type="text"
                         value={item.shortUrl}
                         readOnly
-                        className="flex-1 text-sm font-mono text-slate-700 bg-transparent border-none focus:outline-none"
+                        className="flex-1 text-xs sm:text-sm font-mono text-slate-700 bg-transparent border-none focus:outline-none truncate"
                       />
                       <button
                         onClick={() => handleCopy(item.shortUrl, item.videoId)}
-                        className="p-1.5 hover:bg-slate-200 rounded-lg transition-colors"
+                        className="p-2 hover:bg-blue-50 rounded-lg transition-all hover:scale-110"
                         title="Copy URL"
                       >
                         {copiedId === item.videoId ? (
                           <Check className="w-4 h-4 text-green-600" />
                         ) : (
-                          <Copy className="w-4 h-4 text-slate-600" />
+                          <Copy className="w-4 h-4 text-slate-600 hover:text-blue-600" />
                         )}
                       </button>
                     </div>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Video ID: {item.videoId}
+                    <p className="text-xs text-slate-500 mt-2 font-medium">
+                      Video ID: <span className="font-mono">{item.videoId}</span>
                     </p>
                   </div>
                 </div>
 
                 {/* Actions */}
-                <div className="flex gap-2">
+                <div className="flex gap-2.5 pt-4 border-t-2 border-slate-200">
                   <button
                     onClick={() => handleDownloadQR(item.videoId, item.title)}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all font-semibold text-sm shadow-lg"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all font-bold text-sm shadow-lg hover:shadow-xl transform hover:scale-105"
                   >
                     <Download className="w-4 h-4" />
-                    Download QR
+                    <span className="hidden sm:inline">Download</span>
                   </button>
                   <a
                     href={item.shortUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-colors font-semibold text-sm"
+                    className="px-4 py-3 bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 rounded-xl hover:from-slate-200 hover:to-slate-300 transition-all font-bold text-sm border-2 border-slate-300 shadow-sm hover:shadow-md transform hover:scale-105 flex items-center justify-center"
                   >
-                    View
+                    <span className="hidden sm:inline">View</span>
+                    <span className="sm:hidden">→</span>
                   </a>
                 </div>
               </div>

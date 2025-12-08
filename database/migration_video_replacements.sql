@@ -21,3 +21,4 @@ CREATE TABLE IF NOT EXISTS video_replacements (
   INDEX idx_replaced_at (replaced_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+

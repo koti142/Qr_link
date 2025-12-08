@@ -1223,130 +1223,103 @@ export async function bulkUploadFromCSV(req, res) {
         }
 
         // Handle thumbnail from CSV - supports URLs, local paths, and files in thumbnails folder
+        // IMPORTANT: Always save thumbnails with videoId as filename for consistency
         let thumbnailUrl = null;
         try {
           if (thumbnailFilePath && thumbnailFilePath.trim() !== '') {
             console.log(`[Row ${rowNumber}] Processing thumbnail: ${thumbnailFilePath}`);
             // Check if it's a URL
             if (thumbnailFilePath.startsWith('http://') || thumbnailFilePath.startsWith('https://')) {
-              // It's a URL - use it directly
+              // It's a URL - use it directly (no file to save)
               thumbnailUrl = thumbnailFilePath;
               console.log(`[Row ${rowNumber}] ✓ Using thumbnail URL: ${thumbnailUrl}`);
-            } else if (thumbnailFilePath.startsWith('/')) {
-              // It's a relative path from thumbnails folder (e.g., /thumbnails/filename.png)
-              thumbnailUrl = thumbnailFilePath;
-              console.log(`[Row ${rowNumber}] ✓ Using thumbnail path: ${thumbnailUrl}`);
-            } else if (thumbnailFilePath.toLowerCase().startsWith('thumbnails/')) {
-              // It's a path like thumbnails/filename.png (no leading slash)
-              thumbnailUrl = `/${thumbnailFilePath}`;
-              console.log(`[Row ${rowNumber}] ✓ Using thumbnail path (normalized): ${thumbnailUrl}`);
             } else {
-              // Try to normalize - if it's just a filename, add thumbnails/ prefix
-              if (!thumbnailFilePath.includes('/')) {
-                thumbnailUrl = `/thumbnails/${thumbnailFilePath}`;
-                console.log(`[Row ${rowNumber}] ✓ Normalized thumbnail filename to: ${thumbnailUrl}`);
+              // It's a local file path - we need to find and copy it with videoId as filename
+              let resolvedThumbnailPath = null;
+              const thumbnailsDir = path.join(__dirname, '../../video-storage/thumbnails');
+              
+              // Strategy 1: Check if it's an absolute path
+              if (path.isAbsolute(thumbnailFilePath)) {
+                if (fsSync.existsSync(thumbnailFilePath)) {
+                  resolvedThumbnailPath = thumbnailFilePath;
+                  console.log(`[Row ${rowNumber}] ✓ Found thumbnail at absolute path: ${resolvedThumbnailPath}`);
+                }
               } else {
-                // Check if it's a relative path like thumbnails/filename.png
-                const thumbnailsDir = path.join(__dirname, '../../video-storage/thumbnails');
-                const thumbnailName = path.basename(thumbnailFilePath);
-                const possibleThumbnailPath = path.join(thumbnailsDir, thumbnailName);
-                
-                if (fsSync.existsSync(possibleThumbnailPath)) {
-                  // Copy thumbnail to use videoId as filename
-                  const thumbnailExt = path.extname(possibleThumbnailPath) || '.jpg';
-                  const targetThumbnailPath = path.join(thumbnailsDir, `${videoId}${thumbnailExt}`);
-                  try {
-                    await fs.copyFile(possibleThumbnailPath, targetThumbnailPath);
-                    thumbnailUrl = `/thumbnails/${videoId}${thumbnailExt}`;
-                    console.log(`[Row ${rowNumber}] ✓ Copied thumbnail to use videoId: ${thumbnailUrl}`);
-                  } catch (copyError) {
-                    // If copy fails, use original path
-                    thumbnailUrl = `/thumbnails/${thumbnailName}`;
-                    console.warn(`[Row ${rowNumber}] ⚠ Failed to copy thumbnail, using original: ${thumbnailUrl}`);
-                  }
-                } else {
-                  // Try multiple path resolution strategies for local thumbnail files
-                  let resolvedThumbnailPath = null;
-                  
-                  // Strategy 1: Check if it's an absolute path
-                  if (path.isAbsolute(thumbnailFilePath)) {
-                    if (fsSync.existsSync(thumbnailFilePath)) {
-                      resolvedThumbnailPath = thumbnailFilePath;
-                    }
-                  } else {
-                    // Strategy 2: Try relative to project root
-                    const projectRoot = path.join(__dirname, '../../');
-                    const relativePath = path.resolve(projectRoot, thumbnailFilePath);
-                    if (fsSync.existsSync(relativePath)) {
-                      resolvedThumbnailPath = relativePath;
-                    }
-                    
-                    // Strategy 3: Try in thumbnails folder (if not found yet)
-                    if (!resolvedThumbnailPath) {
-                      const thumbnailsDir = path.join(__dirname, '../../video-storage/thumbnails');
-                      const thumbnailName = path.basename(thumbnailFilePath);
-                      const thumbnailsPath = path.join(thumbnailsDir, thumbnailName);
-                      if (fsSync.existsSync(thumbnailsPath)) {
-                        // Copy thumbnail to use videoId as filename
-                        const thumbnailExt = path.extname(thumbnailsPath) || '.jpg';
-                        const targetThumbnailPath = path.join(thumbnailsDir, `${videoId}${thumbnailExt}`);
-                        try {
-                          await fs.copyFile(thumbnailsPath, targetThumbnailPath);
-                          thumbnailUrl = `/thumbnails/${videoId}${thumbnailExt}`;
-                          console.log(`[Row ${rowNumber}] ✓ Copied thumbnail to use videoId: ${thumbnailUrl}`);
-                        } catch (copyError) {
-                          // If copy fails, use original path
-                          thumbnailUrl = `/thumbnails/${thumbnailName}`;
-                          console.warn(`[Row ${rowNumber}] ⚠ Failed to copy thumbnail, using original: ${thumbnailUrl}`);
-                        }
-                      }
-                    }
-                  }
-                  
-                  // If we found a local file, save it using the thumbnail service
-                  if (resolvedThumbnailPath && !thumbnailUrl) {
-                    const thumbnailExt = path.extname(resolvedThumbnailPath).toLowerCase();
-                    if (['.jpg', '.jpeg', '.png', '.webp'].includes(thumbnailExt)) {
-                      try {
-                        const thumbnailBuffer = await fs.readFile(resolvedThumbnailPath);
-                        const thumbnailFile = {
-                          buffer: thumbnailBuffer,
-                          originalname: `${videoId}${thumbnailExt}`, // Use videoId as filename for consistency
-                          mimetype: thumbnailExt === '.png' ? 'image/png' : 
-                                   thumbnailExt === '.webp' ? 'image/webp' : 'image/jpeg'
-                        };
-                        thumbnailUrl = await thumbnailService.saveUploadedThumbnail(thumbnailFile, videoId);
-                        console.log(`[Row ${rowNumber}] ✓ Custom thumbnail saved from: ${resolvedThumbnailPath} -> ${thumbnailUrl}`);
-                        console.log(`[Row ${rowNumber}] ✓ Thumbnail saved with videoId: ${videoId}, URL: ${thumbnailUrl}`);
-                      } catch (saveError) {
-                        console.warn(`[Row ${rowNumber}] ⚠ Failed to save thumbnail from ${resolvedThumbnailPath}:`, saveError.message);
-                      }
-                    } else {
-                      console.warn(`[Row ${rowNumber}] ⚠ Invalid thumbnail extension: ${thumbnailExt}`);
-                    }
-                  } else if (!thumbnailUrl) {
-                    // If still not found, try one more time in thumbnails folder with full path
-                    const thumbnailsDir = path.join(__dirname, '../../video-storage/thumbnails');
-                    const possiblePath2 = path.join(thumbnailsDir, thumbnailFilePath);
-                    if (fsSync.existsSync(possiblePath2)) {
-                      // Copy thumbnail to use videoId as filename
-                      const thumbnailExt = path.extname(possiblePath2) || '.jpg';
-                      const targetThumbnailPath = path.join(thumbnailsDir, `${videoId}${thumbnailExt}`);
-                      try {
-                        await fs.copyFile(possiblePath2, targetThumbnailPath);
-                        thumbnailUrl = `/thumbnails/${videoId}${thumbnailExt}`;
-                        console.log(`[Row ${rowNumber}] ✓ Copied thumbnail to use videoId: ${thumbnailUrl}`);
-                      } catch (copyError) {
-                        // If copy fails, use original path
-                        thumbnailUrl = `/thumbnails/${thumbnailFilePath}`;
-                        console.warn(`[Row ${rowNumber}] ⚠ Failed to copy thumbnail, using original: ${thumbnailUrl}`);
-                      }
-                    } else {
-                      console.warn(`[Row ${rowNumber}] ⚠ Thumbnail file not found: ${thumbnailFilePath}`);
-                      console.warn(`[Row ${rowNumber}]   Checked paths: ${resolvedThumbnailPath || 'N/A'}, ${possiblePath2}`);
-                    }
+                // Strategy 2: Handle paths starting with /thumbnails/ or thumbnails/
+                if (thumbnailFilePath.startsWith('/thumbnails/') || thumbnailFilePath.toLowerCase().startsWith('thumbnails/')) {
+                  const thumbnailName = path.basename(thumbnailFilePath);
+                  const possiblePath = path.join(thumbnailsDir, thumbnailName);
+                  if (fsSync.existsSync(possiblePath)) {
+                    resolvedThumbnailPath = possiblePath;
+                    console.log(`[Row ${rowNumber}] ✓ Found thumbnail in thumbnails folder: ${resolvedThumbnailPath}`);
                   }
                 }
+                
+                // Strategy 3: Try relative to project root
+                if (!resolvedThumbnailPath) {
+                  const projectRoot = path.join(__dirname, '../../');
+                  const relativePath = path.resolve(projectRoot, thumbnailFilePath);
+                  if (fsSync.existsSync(relativePath)) {
+                    resolvedThumbnailPath = relativePath;
+                    console.log(`[Row ${rowNumber}] ✓ Found thumbnail relative to project root: ${resolvedThumbnailPath}`);
+                  }
+                }
+                
+                // Strategy 4: Try in thumbnails folder with just filename
+                if (!resolvedThumbnailPath) {
+                  const thumbnailName = path.basename(thumbnailFilePath);
+                  const thumbnailsPath = path.join(thumbnailsDir, thumbnailName);
+                  if (fsSync.existsSync(thumbnailsPath)) {
+                    resolvedThumbnailPath = thumbnailsPath;
+                    console.log(`[Row ${rowNumber}] ✓ Found thumbnail by filename in thumbnails folder: ${resolvedThumbnailPath}`);
+                  }
+                }
+                
+                // Strategy 5: Try with full path in thumbnails folder
+                if (!resolvedThumbnailPath) {
+                  const possiblePath2 = path.join(thumbnailsDir, thumbnailFilePath);
+                  if (fsSync.existsSync(possiblePath2)) {
+                    resolvedThumbnailPath = possiblePath2;
+                    console.log(`[Row ${rowNumber}] ✓ Found thumbnail with full path in thumbnails folder: ${resolvedThumbnailPath}`);
+                  }
+                }
+              }
+              
+              // If we found a local file, save it using the thumbnail service with videoId as filename
+              if (resolvedThumbnailPath) {
+                const thumbnailExt = path.extname(resolvedThumbnailPath).toLowerCase();
+                if (['.jpg', '.jpeg', '.png', '.webp'].includes(thumbnailExt)) {
+                  try {
+                    // Read the file and save it with videoId as filename
+                    const thumbnailBuffer = await fs.readFile(resolvedThumbnailPath);
+                    const thumbnailFile = {
+                      buffer: thumbnailBuffer,
+                      originalname: `${videoId}${thumbnailExt}`, // Use videoId as filename
+                      mimetype: thumbnailExt === '.png' ? 'image/png' : 
+                               thumbnailExt === '.webp' ? 'image/webp' : 'image/jpeg'
+                    };
+                    thumbnailUrl = await thumbnailService.saveUploadedThumbnail(thumbnailFile, videoId);
+                    console.log(`[Row ${rowNumber}] ✓ Thumbnail saved from CSV: ${resolvedThumbnailPath} -> ${thumbnailUrl}`);
+                    console.log(`[Row ${rowNumber}] ✓ Thumbnail saved with videoId: ${videoId}, URL: ${thumbnailUrl}`);
+                  } catch (saveError) {
+                    console.warn(`[Row ${rowNumber}] ⚠ Failed to save thumbnail from ${resolvedThumbnailPath}:`, saveError.message);
+                    // Fallback: try direct copy
+                    try {
+                      const finalExt = thumbnailExt || '.jpg';
+                      const targetThumbnailPath = path.join(thumbnailsDir, `${videoId}${finalExt}`);
+                      await fs.copyFile(resolvedThumbnailPath, targetThumbnailPath);
+                      thumbnailUrl = `/thumbnails/${videoId}${finalExt}`;
+                      console.log(`[Row ${rowNumber}] ✓ Thumbnail copied directly: ${thumbnailUrl}`);
+                    } catch (copyError) {
+                      console.warn(`[Row ${rowNumber}] ⚠ Failed to copy thumbnail directly:`, copyError.message);
+                    }
+                  }
+                } else {
+                  console.warn(`[Row ${rowNumber}] ⚠ Invalid thumbnail extension: ${thumbnailExt}`);
+                }
+              } else {
+                console.warn(`[Row ${rowNumber}] ⚠ Thumbnail file not found: ${thumbnailFilePath}`);
+                console.warn(`[Row ${rowNumber}]   Searched in thumbnails folder and project root`);
               }
             }
           }
@@ -1377,27 +1350,27 @@ export async function bulkUploadFromCSV(req, res) {
           console.log(`[Row ${rowNumber}] ✓ Using default thumbnail after error: ${thumbnailUrl}`);
         }
         
-        // Ensure thumbnailUrl is properly formatted and uses videoId as filename
+        // Ensure thumbnailUrl is properly formatted (should already be correct if saved via service)
+        // Only normalize if it's a URL or if it doesn't match expected format
         if (thumbnailUrl && !thumbnailUrl.startsWith('http://') && !thumbnailUrl.startsWith('https://')) {
-          // If thumbnail was saved using saveUploadedThumbnail, it should already be in format /thumbnails/{videoId}.{ext}
-          // But if it's just a path reference, we need to ensure it uses videoId
-          if (!thumbnailUrl.includes(videoId) && thumbnailUrl.startsWith('/thumbnails/')) {
-            // Extract extension from current path
-            const currentExt = path.extname(thumbnailUrl) || '.jpg';
-            // Update to use videoId as filename
-            thumbnailUrl = `/thumbnails/${videoId}${currentExt}`;
-            console.log(`[Row ${rowNumber}] ✓ Updated thumbnail URL to use videoId: ${thumbnailUrl}`);
-          } else if (!thumbnailUrl.startsWith('/thumbnails/')) {
+          // Ensure it starts with /thumbnails/ and uses videoId as filename
+          if (!thumbnailUrl.startsWith('/thumbnails/')) {
             // If it doesn't start with /thumbnails/, normalize it
             if (!thumbnailUrl.startsWith('/')) {
               thumbnailUrl = `/${thumbnailUrl}`;
             }
-            // If it's not already in thumbnails folder, move it there with videoId
+            // If it's not already in thumbnails folder, assume it should be there with videoId
             if (!thumbnailUrl.startsWith('/thumbnails/')) {
               const ext = path.extname(thumbnailUrl) || '.jpg';
               thumbnailUrl = `/thumbnails/${videoId}${ext}`;
               console.log(`[Row ${rowNumber}] ✓ Normalized thumbnail URL to: ${thumbnailUrl}`);
             }
+          } else if (!thumbnailUrl.includes(videoId)) {
+            // If it's in /thumbnails/ but doesn't use videoId, update the URL
+            // (Note: This should rarely happen now since we always save with videoId)
+            const ext = path.extname(thumbnailUrl) || '.jpg';
+            thumbnailUrl = `/thumbnails/${videoId}${ext}`;
+            console.log(`[Row ${rowNumber}] ✓ Updated thumbnail URL to use videoId: ${thumbnailUrl}`);
           }
         }
 
